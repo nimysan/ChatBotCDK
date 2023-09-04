@@ -23,7 +23,10 @@ public class ChatBotCdkApp {
                         .region(System.getenv("CDK_DEFAULT_REGION"))
                         .build())
                 */
-
+                .env(Environment.builder()
+                        .account(System.getenv("CDK_DEFAULT_ACCOUNT"))
+                        .region(System.getenv("CDK_DEFAULT_REGION"))
+                        .build())
                 // Uncomment the next block if you know exactly what Account and Region you
                 // want to deploy the stack to.
                 /*
@@ -32,7 +35,10 @@ public class ChatBotCdkApp {
                         .region("us-east-1")
                         .build())
                 */
-
+//                .env(Environment.builder()
+//                        .account("390468416359")
+//                        .region("us-east-1")
+//                        .build())
                 // For more information, see https://docs.aws.amazon.com/cdk/latest/guide/environments.html
                 .build());
 
