@@ -16,6 +16,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.stream.Collectors;
 // import software.amazon.awscdk.Duration;
 // import software.amazon.awscdk.services.sqs.Queue;
 
@@ -68,7 +69,8 @@ public class ChatBotCdkStack extends Stack {
                 .description("Allow ssh access to ec2 instances")
                 .allowAllOutbound(true)
                 .build();
-        chatBotSecurityGroup.addIngressRule(Peer.anyIpv4(), Port.tcp(DB_PORT), "allow ssh access from the world");
+        chatBotSecurityGroup.addIngressRule(Peer.anyIpv4(), Port.tcp(22), "allow ssh access from the world");
+        chatBotSecurityGroup.addIngressRule(Peer.ipv4(vpc.getVpcCidrBlock()), Port.tcp(DB_PORT), "allow to access the database instance");
 
 
         SecurityGroup chatBotRDSSecurityGroup = SecurityGroup.Builder.create(this, "ChatBotRDSSecurityGroup")
@@ -76,12 +78,13 @@ public class ChatBotCdkStack extends Stack {
                 .description("Allow EC2 to connect pg")
                 .allowAllOutbound(true)
                 .build();
-        chatBotRDSSecurityGroup.addIngressRule(Peer.securityGroupId(chatBotSecurityGroup.getSecurityGroupId()), Port.tcp(5432), "allow web service to access postgresql");
+        chatBotRDSSecurityGroup.addIngressRule(Peer.securityGroupId(chatBotSecurityGroup.getSecurityGroupId()), Port.tcp(DB_PORT), "allow web service to access postgresql");
 //        //TODO 连接数据库所在
 //
 //        //创建EC2
-        Instance.Builder.create(this, "webServer")
+        Instance instance = Instance.Builder.create(this, "ChatBotWebServer")
                 .vpc(vpc)
+                .vpcSubnets(SubnetSelection.builder().subnetType(SubnetType.PUBLIC).build()) //放在公有子网
                 .instanceType(InstanceType.of(InstanceClass.C5, InstanceSize.LARGE))
                 .machineImage(MachineImage.latestAmazonLinux2023())
                 .securityGroup(chatBotSecurityGroup)
@@ -89,21 +92,51 @@ public class ChatBotCdkStack extends Stack {
                 .build();
 
         // create database
-        final DatabaseSecret databaseSecret = new DatabaseSecret(this, "dbSecret", DatabaseSecretProps.builder()
-                .username("dbUser")
-                .secretName("dbPassword")
-                .build());
+//        final DatabaseSecret databaseSecret = new DatabaseSecret(this, "dbSecret", DatabaseSecretProps.builder()
+//                .username("dbUser")
+//                .secretName("dbPassword")
+//                .build());
 
-        DatabaseCluster serverlessCluster = getDatabaseCluster(databaseSecret, vpc, chatBotRDSSecurityGroup);
+//        DatabaseCluster serverlessCluster = getDatabaseCluster(databaseSecret, vpc, chatBotRDSSecurityGroup);
+
+        CfnDBCluster dbCluster = serverlessV2Cluster(vpc, chatBotRDSSecurityGroup);
+        dbCluster.applyRemovalPolicy(RemovalPolicy.RETAIN);
 
         //output
         CfnOutput.Builder.create(this, "database-arn")
-                .value(serverlessCluster.getClusterIdentifier())
+                .value(dbCluster.getAttrDbClusterArn())
                 .build();
 
 //        CfnOutput.Builder.create(this, "database-arn")
 //                .value(d)
 //                .build();
+    }
+
+
+    CfnDBCluster serverlessV2Cluster(IVpc vpc, SecurityGroup securityGroup) {
+        List<String> azs =
+                vpc.getPrivateSubnets().stream().map(ISubnet::getAvailabilityZone).collect(Collectors.toList());
+
+
+        CfnDBCluster.ServerlessV2ScalingConfigurationProperty serverlessV2ScalingConfigurationProperty = CfnDBCluster.ServerlessV2ScalingConfigurationProperty.builder()
+                .minCapacity(0.5)
+                .maxCapacity(1)
+                .build();
+
+//        final Credentials credentials = Credentials.fromSecret(databaseSecret);
+
+        return new CfnDBCluster(this, "postgresql-serverless-v2", CfnDBClusterProps.builder()
+                .engine("aurora-postgresql")
+                .engineVersion("15.3")
+                .serverlessV2ScalingConfiguration(serverlessV2ScalingConfigurationProperty)
+                .masterUsername("postgres")
+//                .masterUserSecret(credentials)
+                .masterUserPassword("admin123")
+//                .allocatedStorage(100)
+                .vpcSecurityGroupIds(Collections.singletonList(securityGroup.getSecurityGroupId()))
+                .availabilityZones(azs)
+
+                .build());
     }
 
     /**
@@ -148,12 +181,19 @@ public class ChatBotCdkStack extends Stack {
 
         final Credentials credentials = Credentials.fromSecret(databaseSecret);
 
+
         // Create Aurora cluster DB
         final IClusterEngine dbEngine = DatabaseClusterEngine
                 .auroraPostgres(AuroraPostgresClusterEngineProps.builder()
                         .version(AuroraPostgresEngineVersion.VER_15_2)
                         .build());
 
+//        CfnDBCluster cfnDBCluster = new CfnDBCluster(this, "postgresql-serverless-v2", CfnDBClusterProps.builder()
+//                .engine("aurora-postgresql")
+//                .engineVersion("15.3")
+//                .serverlessV2ScalingConfiguration(serverlessV2ScalingConfigurationProperty).
+//
+//                .build());
 //        Aspects.of()
         DatabaseCluster dbCluster = new DatabaseCluster(this, "PostgresSeverlessV2", DatabaseClusterProps.builder().
                 engine(dbEngine).
@@ -167,20 +207,20 @@ public class ChatBotCdkStack extends Stack {
                         .build()).
 
                 build());
-        Aspects.of(dbCluster).add(new IAspect() {
-            @Override
-            public void visit(@NotNull IConstruct node) {
-                if (node instanceof CfnDBCluster) {
-                    CfnDBCluster dbNode = (CfnDBCluster) node;
-//                    dbNode
-                    dbNode.setServerlessV2ScalingConfiguration(CfnDBCluster.ServerlessV2ScalingConfigurationProperty.builder()
-                            .maxCapacity(0.5)
-                            .maxCapacity(1)
-                            .build());
-
-                }
-            }
-        });
+//        Aspects.of(dbCluster).add(new IAspect() {
+//            @Override
+//            public void visit(@NotNull IConstruct node) {
+//                if (node instanceof CfnDBCluster) {
+//                    CfnDBCluster dbNode = (CfnDBCluster) node;
+////                    dbNode
+//                    dbNode.setServerlessV2ScalingConfiguration(CfnDBCluster.ServerlessV2ScalingConfigurationProperty.builder()
+//                            .maxCapacity(0.5)
+//                            .maxCapacity(1)
+//                            .build());
+//
+//                }
+//            }
+//        });
 
         return dbCluster;
     }

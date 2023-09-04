@@ -24,3 +24,8 @@ Enjoy!
 
 https://repost.aws/questions/QUTCKQz8CPSnSExbt-Oi-8xQ/unavailable-serverless-db-engine-mode-error
 
+```bash
+# install psql client
+sudo dnf install postgresql15 -y
+
+```
