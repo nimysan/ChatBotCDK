@@ -32,10 +32,7 @@ public class ChatBotCdkApp {
                         .region("us-east-1")
                         .build())
                 */
-                .env(Environment.builder()
-                        .account("390468416359")
-                        .region("us-east-1")
-                        .build())
+
                 // For more information, see https://docs.aws.amazon.com/cdk/latest/guide/environments.html
                 .build());
 
