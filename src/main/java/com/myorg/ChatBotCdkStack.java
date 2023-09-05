@@ -89,6 +89,9 @@ public class ChatBotCdkStack extends Stack {
                 .machineImage(MachineImage.latestAmazonLinux2023())
                 .securityGroup(chatBotSecurityGroup)
                 .keyName(ec2KeyPairName.getValueAsString())
+                .userData(UserData.custom(
+                        "sudo dnf install git postgresql15 pip -y && git clone https://github.com/nimysan/ChatBotWebUI.git && cd  ChatBotWebUI &&chmod a+x ./deploy.sh &&  ./deploy.sh")
+                )
                 .build();
 
         // create database
