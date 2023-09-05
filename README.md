@@ -38,6 +38,7 @@ sudo dnf install postgresql15 -y
 
 ### RDS管理
 
+安装pgAdmin4 --- https://github.com/twtrubiks/docker-pgadmin4-tutorial
 
 
 ```bash

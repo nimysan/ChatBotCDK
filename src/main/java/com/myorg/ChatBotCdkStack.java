@@ -1,7 +1,9 @@
 package com.myorg;
 
+import org.apache.commons.io.IOUtils;
 import org.jetbrains.annotations.NotNull;
 import software.amazon.awscdk.*;
+import software.amazon.awscdk.Stack;
 import software.amazon.awscdk.services.ec2.IVpc;
 import software.amazon.awscdk.services.ec2.SecurityGroup;
 import software.amazon.awscdk.services.ec2.Vpc;
@@ -12,10 +14,9 @@ import software.constructs.Construct;
 import software.amazon.awscdk.services.ec2.*;
 import software.constructs.IConstruct;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.util.*;
 import java.util.stream.Collectors;
 // import software.amazon.awscdk.Duration;
 // import software.amazon.awscdk.services.sqs.Queue;
@@ -71,6 +72,9 @@ public class ChatBotCdkStack extends Stack {
                 .build();
         chatBotSecurityGroup.addIngressRule(Peer.anyIpv4(), Port.tcp(22), "allow ssh access from the world");
         chatBotSecurityGroup.addIngressRule(Peer.ipv4(vpc.getVpcCidrBlock()), Port.tcp(DB_PORT), "allow to access the database instance");
+        chatBotSecurityGroup.addIngressRule(Peer.anyIpv4(), Port.tcp(80), "allow to access the database instance");
+        chatBotSecurityGroup.addIngressRule(Peer.anyIpv4(), Port.tcp(443), "allow to access the database instance");
+        chatBotSecurityGroup.addIngressRule(Peer.anyIpv4(), Port.tcp(5050), "allow pgadmin4 to be accessed");
 
 
         SecurityGroup chatBotRDSSecurityGroup = SecurityGroup.Builder.create(this, "ChatBotRDSSecurityGroup")
@@ -82,6 +86,12 @@ public class ChatBotCdkStack extends Stack {
 //        //TODO 连接数据库所在
 //
 //        //创建EC2
+        String userData = null;
+        try {
+            userData = IOUtils.readLines(new FileInputStream("./userdata.sh")).stream().collect(Collectors.joining("\n"));
+        } catch (FileNotFoundException e) {
+            throw new RuntimeException(e);
+        }
         Instance instance = Instance.Builder.create(this, "ChatBotWebServer")
                 .vpc(vpc)
                 .vpcSubnets(SubnetSelection.builder().subnetType(SubnetType.PUBLIC).build()) //放在公有子网
@@ -89,12 +99,10 @@ public class ChatBotCdkStack extends Stack {
                 .machineImage(MachineImage.latestAmazonLinux2023())
                 .securityGroup(chatBotSecurityGroup)
                 .keyName(ec2KeyPairName.getValueAsString())
-                .userData(UserData.custom(
-                        "sudo dnf install git postgresql15 pip -y && git clone https://github.com/nimysan/ChatBotWebUI.git && cd  ChatBotWebUI &&chmod a+x ./deploy.sh &&  ./deploy.sh")
-                )
+                .userData(UserData.custom(userData))
                 .build();
 
-        // create database
+//        // create database
 //        final DatabaseSecret databaseSecret = new DatabaseSecret(this, "dbSecret", DatabaseSecretProps.builder()
 //                .username("dbUser")
 //                .secretName("dbPassword")
@@ -105,14 +113,28 @@ public class ChatBotCdkStack extends Stack {
         CfnDBCluster dbCluster = serverlessV2Cluster(vpc, chatBotRDSSecurityGroup);
         dbCluster.applyRemovalPolicy(RemovalPolicy.RETAIN);
 
+        CfnDBInstance dbInstance = new CfnDBInstance(this, "DatabaseInstanceWriter", CfnDBInstanceProps.builder()
+                .port("5432")
+                .dbClusterIdentifier(dbCluster.getDbClusterIdentifier())
+                .dbInstanceClass("db.serverless")
+                .dbInstanceIdentifier("writer-instance")
+                .engine("aurora-postgresql")
+                .build());
+
+        dbInstance.addDependency(dbCluster);
+
         //output
         CfnOutput.Builder.create(this, "database-arn")
                 .value(dbCluster.getAttrDbClusterArn())
                 .build();
 
-//        CfnOutput.Builder.create(this, "database-arn")
-//                .value(d)
-//                .build();
+        CfnOutput.Builder.create(this, "database-endpoint")
+                .value(dbCluster.getAttrEndpointAddress())
+                .build();
+
+        CfnOutput.Builder.create(this, "pgAdmin4-url")
+                .value("http://" + instance.getInstancePublicIp())
+                .build();
     }
 
 
@@ -128,13 +150,15 @@ public class ChatBotCdkStack extends Stack {
 
 //        final Credentials credentials = Credentials.fromSecret(databaseSecret);
 
-        return new CfnDBCluster(this, "postgresql-serverless-v2", CfnDBClusterProps.builder()
+        return new CfnDBCluster(this, "DatabaseClusterForChatBot", CfnDBClusterProps.builder()
                 .engine("aurora-postgresql")
                 .engineVersion("15.3")
+                .dbClusterIdentifier("postgresql-serverless-v2")
                 .serverlessV2ScalingConfiguration(serverlessV2ScalingConfigurationProperty)
                 .masterUsername("postgres")
+                .port(DB_PORT)
 //                .masterUserSecret(credentials)
-                .masterUserPassword("admin123")
+                .masterUserPassword("L&123*Csaxt")
 //                .allocatedStorage(100)
                 .vpcSecurityGroupIds(Collections.singletonList(securityGroup.getSecurityGroupId()))
                 .availabilityZones(azs)
