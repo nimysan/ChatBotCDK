@@ -114,7 +114,7 @@ public class ChatBotCdkStack extends Stack {
         dbCluster.applyRemovalPolicy(RemovalPolicy.RETAIN);
 
         CfnDBInstance dbInstance = new CfnDBInstance(this, "DatabaseInstanceWriter", CfnDBInstanceProps.builder()
-                .port("5432")
+//                .port("5432")
                 .dbClusterIdentifier(dbCluster.getDbClusterIdentifier())
                 .dbInstanceClass("db.serverless")
                 .dbInstanceIdentifier("writer-instance")
@@ -153,7 +153,7 @@ public class ChatBotCdkStack extends Stack {
         return new CfnDBCluster(this, "DatabaseClusterForChatBot", CfnDBClusterProps.builder()
                 .engine("aurora-postgresql")
                 .engineVersion("15.3")
-                .dbClusterIdentifier("postgresql-serverless-v2")
+                .dbClusterIdentifier("postgresql-serverless-chatbot")
                 .serverlessV2ScalingConfiguration(serverlessV2ScalingConfigurationProperty)
                 .masterUsername("postgres")
                 .port(DB_PORT)
