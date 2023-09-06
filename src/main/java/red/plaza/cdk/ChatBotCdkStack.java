@@ -25,6 +25,9 @@ import java.util.stream.Collectors;
 public class ChatBotCdkStack extends Stack {
 
     private final static int DB_PORT = 5432;
+    private final static int CAHT_BOT_PORT = 7860;
+
+    private final static int PGADMIN_PORT = 62315;
 
     public ChatBotCdkStack(final Construct scope, final String id) {
         this(scope, id, null);
@@ -61,9 +64,9 @@ public class ChatBotCdkStack extends Stack {
         SecurityGroup chatBotServerSecurityGroup = SecurityGroup.Builder.create(this, "ChatBotServerSecurityGroup").vpc(vpc).description("Allow ssh access to ec2 instances").allowAllOutbound(true).build();
         chatBotServerSecurityGroup.addIngressRule(Peer.anyIpv4(), Port.tcp(22), "allow ssh access from the world");
         chatBotServerSecurityGroup.addIngressRule(Peer.ipv4(vpc.getVpcCidrBlock()), Port.tcp(DB_PORT), "allow to access the database chatBotWebServer");
-        chatBotServerSecurityGroup.addIngressRule(Peer.anyIpv4(), Port.tcp(80), "allow to access the database chatBotWebServer");
+        chatBotServerSecurityGroup.addIngressRule(Peer.anyIpv4(), Port.tcp(PGADMIN_PORT), "PGAdmin4 export");
         chatBotServerSecurityGroup.addIngressRule(Peer.anyIpv4(), Port.tcp(443), "allow to access the database chatBotWebServer");
-        chatBotServerSecurityGroup.addIngressRule(Peer.anyIpv4(), Port.tcp(62315), "gradio export to be accessed");
+        chatBotServerSecurityGroup.addIngressRule(Peer.anyIpv4(), Port.tcp(CAHT_BOT_PORT), "gradio export to be accessed");
 
 
         SecurityGroup chatBotRDSSecurityGroup = SecurityGroup.Builder.create(this, "ChatBotRDSSecurityGroup").vpc(vpc).description("Allow EC2 to connect pg").allowAllOutbound(true).build();
@@ -97,7 +100,7 @@ public class ChatBotCdkStack extends Stack {
                 ));
 
 
-        Instance chatBotWebServer = Instance.Builder.create(this, "ChatBotWebServer")
+        Instance chatBotWebServer = Instance.Builder.create(this, "ChatBotWebServerV2-U")
                 .vpc(vpc)
                 .vpcSubnets(SubnetSelection.builder().subnetType(SubnetType.PUBLIC).build()) //放在公有子网 需要访问openapi或者其他外部网页数据
                 .instanceType(
@@ -105,7 +108,7 @@ public class ChatBotCdkStack extends Stack {
                 .machineImage(MachineImage.latestAmazonLinux2023())
                 .securityGroup(chatBotServerSecurityGroup)
                 .keyName(ec2KeyPairName.getValueAsString())
-                .userData(UserData.custom(userData)).build();
+                .userData(UserData.custom(finalUserData)).build();
 
         chatBotWebServer.getNode().addDependency(dbCluster);
 //        chatBotWebServer.
@@ -116,9 +119,9 @@ public class ChatBotCdkStack extends Stack {
 //
         CfnOutput.Builder.create(this, "database-endpoint").value(dbCluster.getAttrEndpointAddress()).build();
 
-        CfnOutput.Builder.create(this, "pgAdmin4-url").value("http://" + chatBotWebServer.getInstancePublicIp()).build();
+        CfnOutput.Builder.create(this, "pgAdmin4-url").value("http://" + chatBotWebServer.getInstancePublicIp() + ":" + PGADMIN_PORT).build();
 
-        CfnOutput.Builder.create(this, "chatbot-url").value("http://" + chatBotWebServer.getInstancePublicIp() + ":62315").description("ChatBot endpoint").build();
+        CfnOutput.Builder.create(this, "chatbot-url").value("http://" + chatBotWebServer.getInstancePublicIp() + ":" + CAHT_BOT_PORT).description("ChatBot endpoint").build();
     }
 
 
@@ -137,7 +140,13 @@ public class ChatBotCdkStack extends Stack {
 
 //        final Credentials credentials = Credentials.fromSecret(databaseSecret);
 
-        CfnDBCluster cfnDBCluster = new CfnDBCluster(this, "DatabaseClusterForChatBot", CfnDBClusterProps.builder().engine("aurora-postgresql").engineVersion("15.3").dbClusterIdentifier("postgresql-serverless-chatbot").serverlessV2ScalingConfiguration(serverlessV2ScalingConfigurationProperty).masterUsername("postgres").port(DB_PORT)
+        CfnDBCluster cfnDBCluster = new CfnDBCluster(this, "DatabaseClusterForChatBot", CfnDBClusterProps.builder()
+                .engine("aurora-postgresql")
+                .engineVersion("15.3")
+                .dbClusterIdentifier("chatbot-postgres-serverless-v2")
+                .serverlessV2ScalingConfiguration(serverlessV2ScalingConfigurationProperty)
+                .masterUsername("postgres")
+                .port(DB_PORT)
 //                .masterUserSecret(credentials)
                 .masterUserPassword(databasePassword).databaseName(databaseName)
 //                .allocatedStorage(100)

@@ -44,3 +44,7 @@ sudo dnf install postgresql15 -y
 ```bash
 aws rds-data execute-statement --resource-arn <DB_CLUSTER_ARN> --secret-arn <SECRET_ARN> --database information_schema --sql "select * from information_schema.tables LIMIT 1" --region us-east-1
 ```
+
+### 关于userdata运行的一些说明和注意事项
+
+[user data](https://docs.aws.amazon.com/zh_cn/AWSEC2/latest/UserGuide/user-data.html#user-data-shell-scripts)
