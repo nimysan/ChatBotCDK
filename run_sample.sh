@@ -5,3 +5,4 @@ cdk deploy --debug -vvv \
 --parameters pgAdmin4Password=SampleAdmin \
 --parameters pgDatabaseName=knowledge \
 --parameters openaiKeyParam=sk-testxxxxx
+#--vpcParam xxxx

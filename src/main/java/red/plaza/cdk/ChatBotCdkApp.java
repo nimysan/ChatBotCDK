@@ -9,6 +9,13 @@ public class ChatBotCdkApp {
     public static void main(final String[] args) {
         App app = new App();
 
+//        SageMakerEndpointStack ss = new SageMakerEndpointStack(app, "LLMStackInSageMaker", StackProps.builder()
+//                .env(Environment.builder()
+//                        .account(System.getenv("CDK_DEFAULT_ACCOUNT"))
+//                        .region(System.getenv("CDK_DEFAULT_REGION"))
+//                        .build())
+//                .build());
+
 //        new VectorStoreStack((app, "VectorStoreStack", NestedStackProps.builder().build()));
         ChatBotCdkStack stack = new ChatBotCdkStack(app, "ChatBotCdkStack", StackProps.builder()
                 // If you don't specify 'env', this stack will be environment-agnostic.
