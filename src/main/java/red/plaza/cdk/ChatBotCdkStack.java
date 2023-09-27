@@ -4,10 +4,15 @@ import org.apache.commons.io.IOUtils;
 import org.jetbrains.annotations.NotNull;
 import software.amazon.awscdk.*;
 import software.amazon.awscdk.Stack;
+import software.amazon.awscdk.services.codedeploy.LoadBalancer;
+import software.amazon.awscdk.services.codedeploy.ServerDeploymentGroup;
 import software.amazon.awscdk.services.ec2.IVpc;
 import software.amazon.awscdk.services.ec2.SecurityGroup;
 import software.amazon.awscdk.services.ec2.Vpc;
 import software.amazon.awscdk.services.ec2.VpcLookupOptions;
+//import software.amazon.awscdk.services.elasticloadbalancingv2.;
+import software.amazon.awscdk.services.elasticloadbalancingv2.*;
+import software.amazon.awscdk.services.elasticloadbalancingv2.targets.InstanceTarget;
 import software.amazon.awscdk.services.iotsitewise.CfnAccessPolicy;
 import software.amazon.awscdk.services.rds.*;
 import software.amazon.awscdk.services.rds.InstanceProps;
@@ -35,7 +40,6 @@ public class ChatBotCdkStack extends Stack {
 
     private final static int DB_PORT = 5432;
     private final static int CAHT_BOT_PORT = 7860;
-
     private final static int PGADMIN_PORT = 62315;
 
     public ChatBotCdkStack(final Construct scope, final String id) {
@@ -71,13 +75,21 @@ public class ChatBotCdkStack extends Stack {
         SecurityGroup chatBotServerSecurityGroup = SecurityGroup.Builder.create(this, "ChatBotServerSecurityGroup").vpc(vpc).description("Allow ssh access to ec2 instances").allowAllOutbound(true).build();
         chatBotServerSecurityGroup.addIngressRule(Peer.anyIpv4(), Port.tcp(22), "allow ssh access from the world");
         chatBotServerSecurityGroup.addIngressRule(Peer.ipv4(vpc.getVpcCidrBlock()), Port.tcp(DB_PORT), "allow to access the database chatBotWebServer");
-        chatBotServerSecurityGroup.addIngressRule(Peer.anyIpv4(), Port.tcp(PGADMIN_PORT), "PGAdmin4 export");
-        chatBotServerSecurityGroup.addIngressRule(Peer.anyIpv4(), Port.tcp(443), "allow to access the database chatBotWebServer");
-        chatBotServerSecurityGroup.addIngressRule(Peer.anyIpv4(), Port.tcp(CAHT_BOT_PORT), "gradio export to be accessed");
+        chatBotServerSecurityGroup.addIngressRule(Peer.ipv4(vpc.getVpcCidrBlock()), Port.tcp(PGADMIN_PORT), "PGAdmin4 export");
+//        chatBotServerSecurityGroup.addIngressRule(Peer.anyIpv4(), Port.tcp(443), "allow to access the database chatBotWebServer");
+        chatBotServerSecurityGroup.addIngressRule(Peer.ipv4(vpc.getVpcCidrBlock()), Port.tcp(CAHT_BOT_PORT), "gradio export to be accessed");
 
 
         SecurityGroup chatBotRDSSecurityGroup = SecurityGroup.Builder.create(this, "ChatBotRDSSecurityGroup").vpc(vpc).description("Allow EC2 to connect pg").allowAllOutbound(true).build();
         chatBotRDSSecurityGroup.addIngressRule(Peer.securityGroupId(chatBotServerSecurityGroup.getSecurityGroupId()), Port.tcp(DB_PORT), "allow web service to access postgresql");
+
+        SecurityGroup albSecurityGroup = SecurityGroup.Builder.create(this, "ChatBotALBSecurityGroup")
+                .securityGroupName("ChatBotALBSecurityGroup")
+                .vpc(vpc).description("Allow ChatBot ALB").allowAllOutbound(true).build();
+        albSecurityGroup.addIngressRule(Peer.anyIpv4(), Port.tcp(80));
+        albSecurityGroup.addIngressRule(Peer.anyIpv4(), Port.tcp(443));
+        albSecurityGroup.addIngressRule(Peer.securityGroupId(chatBotServerSecurityGroup.getSecurityGroupId()), Port.tcp(7860));
+        albSecurityGroup.addIngressRule(Peer.securityGroupId(chatBotServerSecurityGroup.getSecurityGroupId()), Port.tcp(62315));
 
         CfnDBCluster dbCluster = serverlessV2Cluster(vpc, chatBotRDSSecurityGroup, databaseMasterPassword.getValueAsString(), pgDatabaseName.getValueAsString());
         dbCluster.applyRemovalPolicy(RemovalPolicy.RETAIN);
@@ -112,7 +124,6 @@ public class ChatBotCdkStack extends Stack {
                         "pg_password", databaseMasterPassword.getValueAsString(),
                         //openai_key
                         "openai_key", openaiKeyParam.getValueAsString()
-
                 ));
 
 
@@ -128,12 +139,13 @@ public class ChatBotCdkStack extends Stack {
                 .build();
 
         chatBotWebServer.getNode().addDependency(dbCluster);
-//        chatBotWebServer.
-//        CfnInstance cfnInstance = new CfnInstance(this, "CfnIn")
 
-//        //Outputs
-//        CfnOutput.Builder.create(this, "database-arn").value(dbCluster.getAttrDbClusterArn()).build();
-//
+//        buildALB(vpc, albSecurityGroup, chatBotWebServer);
+
+
+//        @NotNull LoadBalancer lb = LoadBalancer.application(albTg);
+//        LoadBalancer.application(pgAlbTg);
+
         CfnOutput.Builder.create(this, "database-endpoint").value(dbCluster.getAttrEndpointAddress()).build();
 
         CfnOutput.Builder.create(this, "database").value(pgDatabaseName.getValueAsString()).build();
@@ -149,6 +161,47 @@ public class ChatBotCdkStack extends Stack {
 
 
         CfnOutput.Builder.create(this, "chatbot-url").value("http://" + chatBotWebServer.getInstancePublicIp() + ":" + CAHT_BOT_PORT).description("ChatBot endpoint").build();
+    }
+
+    private void buildALB
+            (IVpc vpc, SecurityGroup albSecurityGroup, Instance chatBotWebServer) {
+        ApplicationLoadBalancer alb = ApplicationLoadBalancer.Builder.create(this, "ALB")
+                .vpc(vpc)
+                .loadBalancerName("CDKManagedALB")
+                .securityGroup(albSecurityGroup)
+                .internetFacing(true)
+                .build();
+
+        //listener for gradio web
+//        ApplicationListener albListener = alb.addListener("alb-listener", BaseApplicationListenerProps.builder()
+//                .protocol(ApplicationProtocol.HTTP)
+//                .build());
+//        ApplicationTargetGroup albTg = albListener.addTargets("alb-tg", AddApplicationTargetsProps.builder()
+//                .protocol(ApplicationProtocol.HTTP)
+//                .healthCheck(HealthCheck.builder()
+//                        .healthyHttpCodes("302")
+//                        .build())
+//                .targetGroupName("CDKManagedAlbTg")
+//                .port(62315)
+//                .targets(Collections.singletonList(new InstanceTarget(chatBotWebServer)))
+//                .deregistrationDelay(Duration.seconds(10))
+//                .build());
+
+//        //listener for postgresqlAdmin
+        ApplicationListener pgAdminALBListener = alb.addListener("alb-listener-pg", BaseApplicationListenerProps.builder()
+                .protocol(ApplicationProtocol.HTTP)
+//                .port(8080)
+                .build());
+        ApplicationTargetGroup pgAlbTg = pgAdminALBListener.addTargets("pg-alb-tg", AddApplicationTargetsProps.builder()
+                .protocol(ApplicationProtocol.HTTP)
+                .healthCheck(HealthCheck.builder()
+                        .healthyHttpCodes("302")
+                        .build())
+                .targetGroupName("CDKManagedPGAlbTg")
+                .port(62315)
+                .targets(Collections.singletonList(new InstanceTarget(chatBotWebServer)))
+                .deregistrationDelay(Duration.seconds(10))
+                .build());
     }
 
 
