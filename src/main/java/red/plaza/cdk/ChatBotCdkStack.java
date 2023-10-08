@@ -269,10 +269,10 @@ public class ChatBotCdkStack extends Stack {
         ApplicationTargetGroup pgAdminTargetGroup = albListener.addTargets("alb-pgadmin4-tg", AddApplicationTargetsProps.builder()
                 .protocol(ApplicationProtocol.HTTP)
                 .healthCheck(HealthCheck.builder()
-                        .healthyHttpCodes("302")
+                        .healthyHttpCodes("200")
                         .build())
                 .targetGroupName("PgAdmin4TargetGroup")
-                .port(PGADMIN_PORT)
+                .port(80)
                 .targets(Collections.singletonList(new InstanceTarget(chatBotWebServer)))
                 .deregistrationDelay(Duration.seconds(10))
                 .build());
@@ -282,22 +282,6 @@ public class ChatBotCdkStack extends Stack {
                 .conditions(List.of(ListenerCondition.pathPatterns(List.of("/manage/*")))).priority(110).build());
         albListener.addAction("pgadmin4-action", AddApplicationActionProps.builder().action(ListenerAction.forward(List.of(pgAdminTargetGroup)))
                 .conditions(List.of(ListenerCondition.pathPatterns(List.of("/pgAdmin4/*")))).priority(120).build());
-
-//        //listener for postgresqlAdmin
-//        ApplicationListener pgAdminALBListener = alb.addListener("alb-listener-pg", BaseApplicationListenerProps.builder()
-//                .protocol(ApplicationProtocol.HTTP)
-////                .port(8080)
-//                .build());
-//        ApplicationTargetGroup pgAlbTg = pgAdminALBListener.addTargets("pg-alb-tg", AddApplicationTargetsProps.builder()
-//                .protocol(ApplicationProtocol.HTTP)
-//                .healthCheck(HealthCheck.builder()
-//                        .healthyHttpCodes("302")
-//                        .build())
-//                .targetGroupName("CDKManagedPGAlbTg")
-//                .port(62315)
-//                .targets(Collections.singletonList(new InstanceTarget(chatBotWebServer)))
-//                .deregistrationDelay(Duration.seconds(10))
-//                .build());
         return alb;
     }
 
