@@ -194,7 +194,7 @@ public class ChatBotCdkStack extends Stack {
                 ));
 
 
-        Instance ec2Instance = Instance.Builder.create(this, "ChatBotWebServerV2-t4g-medium-v2")
+        Instance ec2Instance = Instance.Builder.create(this, "ChatBotWebServerV2-t4g-medium-v3")
                 .vpc(vpc)
                 .vpcSubnets(SubnetSelection.builder().subnetType(SubnetType.PUBLIC).build()) //放在公有子网 需要访问openapi或者其他外部网页数据
                 .machineImage(MachineImage.latestAmazonLinux2023(AmazonLinux2023ImageSsmParameterProps.builder()
