@@ -1,0 +1,506 @@
+Parameters:
+  InstanceType:
+    Type: String
+    Default: t4g.medium
+    Description: EC2 instance type (Graviton will be cost effective)
+  ec2KeyPair:
+    Type: String
+    Description: EC2 Key Pair name
+  databasePassword:
+    Type: String
+    Description: Database master password
+  pgAdmin4UserName:
+    Type: String
+    Description: pgAdmin4 User name
+  pgAdmin4Password:
+    Type: String
+    Description: pgAdmin4 Password
+  pgDatabaseName:
+    Type: String
+    Description: Database name
+  openaiKeyParam:
+    Type: String
+    Description: OpenAI key, can be changed after initialized
+  SsmParameterValueawsserviceamiamazonlinuxlatestal2023amikernel61arm64C96584B6F00A464EAD1953AFF4B05118Parameter:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-6.1-arm64
+  BootstrapVersion:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /cdk-bootstrap/hnb659fds/version
+    Description: Version of the CDK Bootstrap resources in this environment, automatically retrieved from SSM Parameter Store. [cdk:skip]
+Resources:
+  ChatBotServerSecurityGroup2BCBF568:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow ssh access to ec2 instances
+      SecurityGroupEgress:
+        - CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic by default
+          IpProtocol: "-1"
+      SecurityGroupIngress:
+        - CidrIp: 0.0.0.0/0
+          Description: allow ssh access from the world
+          FromPort: 22
+          IpProtocol: tcp
+          ToPort: 22
+        - CidrIp: 172.31.0.0/16
+          Description: Allow connect to database
+          FromPort: 5432
+          IpProtocol: tcp
+          ToPort: 5432
+        - CidrIp: 172.31.0.0/16
+          Description: PGAdmin4 ui
+          FromPort: 62315
+          IpProtocol: tcp
+          ToPort: 62315
+        - CidrIp: 172.31.0.0/16
+          Description: Gradio web ui
+          FromPort: 7860
+          IpProtocol: tcp
+          ToPort: 7860
+      VpcId: vpc-08cd91d07ef1cfbfa
+    Metadata:
+      aws:cdk:path: ChatBotCdkStack/ChatBotServerSecurityGroup/Resource
+  ChatBotRDSSecurityGroup399D370C:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow EC2 to connect pg
+      SecurityGroupEgress:
+        - CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic by default
+          IpProtocol: "-1"
+      SecurityGroupIngress:
+        - Description: Allow EC2 to access database
+          FromPort: 5432
+          IpProtocol: tcp
+          SourceSecurityGroupId:
+            Fn::GetAtt:
+              - ChatBotServerSecurityGroup2BCBF568
+              - GroupId
+          ToPort: 5432
+      VpcId: vpc-08cd91d07ef1cfbfa
+    Metadata:
+      aws:cdk:path: ChatBotCdkStack/ChatBotRDSSecurityGroup/Resource
+  ChatBotALBSecurityGroup952F1AD5:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow ChatBot ALB
+      GroupName: ChatBotALBSecurityGroup
+      SecurityGroupEgress:
+        - CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic by default
+          IpProtocol: "-1"
+      SecurityGroupIngress:
+        - CidrIp: 0.0.0.0/0
+          Description: 80 for webui
+          FromPort: 80
+          IpProtocol: tcp
+          ToPort: 80
+        - CidrIp: 0.0.0.0/0
+          Description: 443 for pgadmin
+          FromPort: 443
+          IpProtocol: tcp
+          ToPort: 443
+        - Description: access gradio webui
+          FromPort: 7860
+          IpProtocol: tcp
+          SourceSecurityGroupId:
+            Fn::GetAtt:
+              - ChatBotServerSecurityGroup2BCBF568
+              - GroupId
+          ToPort: 7860
+        - Description: access pgadmin ui
+          FromPort: 62315
+          IpProtocol: tcp
+          SourceSecurityGroupId:
+            Fn::GetAtt:
+              - ChatBotServerSecurityGroup2BCBF568
+              - GroupId
+          ToPort: 62315
+      VpcId: vpc-08cd91d07ef1cfbfa
+    Metadata:
+      aws:cdk:path: ChatBotCdkStack/ChatBotALBSecurityGroup/Resource
+  DatabaseClusterForChatBot:
+    Type: AWS::RDS::DBCluster
+    Properties:
+      AvailabilityZones:
+        - us-east-1a
+      DatabaseName:
+        Ref: pgDatabaseName
+      DBClusterIdentifier: chatbot-postgres-serverless-v2
+      Engine: aurora-postgresql
+      EngineVersion: "15.3"
+      MasterUsername: postgres
+      MasterUserPassword:
+        Ref: databasePassword
+      Port: 5432
+      ServerlessV2ScalingConfiguration:
+        MaxCapacity: 1
+        MinCapacity: 0.5
+      VpcSecurityGroupIds:
+        - Fn::GetAtt:
+            - ChatBotRDSSecurityGroup399D370C
+            - GroupId
+    UpdateReplacePolicy: Retain
+    DeletionPolicy: Retain
+    Metadata:
+      aws:cdk:path: ChatBotCdkStack/DatabaseClusterForChatBot
+  DatabaseInstanceWriter:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBClusterIdentifier: chatbot-postgres-serverless-v2
+      DBInstanceClass: db.serverless
+      DBInstanceIdentifier: writer-instance
+      Engine: aurora-postgresql
+    DependsOn:
+      - DatabaseClusterForChatBot
+    Metadata:
+      aws:cdk:path: ChatBotCdkStack/DatabaseInstanceWriter
+  SagemakerRole5FDB64E1:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service: sagemaker.amazonaws.com
+        Version: "2012-10-17"
+      Policies:
+        - PolicyDocument:
+            Statement:
+              - Action:
+                  - cloudwatch:GetMetricData
+                  - cloudwatch:GetMetricStatistics
+                  - cloudwatch:ListMetrics
+                  - cloudwatch:PutMetricData
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:BatchGetImage
+                  - ecr:GetAuthorizationToken
+                  - ecr:GetDownloadUrlForLayer
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:DescribeLogStreams
+                  - logs:GetLogEvents
+                  - logs:PutLogEvents
+                  - s3:CreateBucket
+                  - s3:GetBucketLocation
+                  - s3:GetObject
+                  - s3:ListBucket
+                  - s3:PutObject
+                  - sagemaker:*
+                Effect: Allow
+                Resource: "*"
+            Version: "2012-10-17"
+          PolicyName: SageMakerAccessPolicy
+      RoleName: ChatBotCdkStack-SagemakerRole
+    Metadata:
+      aws:cdk:path: ChatBotCdkStack/SagemakerRole/Resource
+  EC2RoleF978FC1C:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+        Version: "2012-10-17"
+      Policies:
+        - PolicyDocument:
+            Statement:
+              - Action:
+                  - cloudwatch:GetMetricData
+                  - cloudwatch:GetMetricStatistics
+                  - cloudwatch:ListMetrics
+                  - cloudwatch:PutMetricData
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:BatchGetImage
+                  - ecr:GetAuthorizationToken
+                  - ecr:GetDownloadUrlForLayer
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:DescribeLogStreams
+                  - logs:GetLogEvents
+                  - logs:PutLogEvents
+                  - s3:CreateBucket
+                  - s3:GetBucketLocation
+                  - s3:GetObject
+                  - s3:ListBucket
+                  - s3:PutObject
+                  - sagemaker:*
+                Effect: Allow
+                Resource: "*"
+            Version: "2012-10-17"
+          PolicyName: SageMakerAccessPolicy
+      RoleName: ChatBotCdkStack-EC2Role
+    Metadata:
+      aws:cdk:path: ChatBotCdkStack/EC2Role/Resource
+  ChatBotWebServerV2t4gmediumv1InstanceProfile3893C44B:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - Ref: EC2RoleF978FC1C
+    DependsOn:
+      - DatabaseClusterForChatBot
+    Metadata:
+      aws:cdk:path: ChatBotCdkStack/ChatBotWebServerV2-t4g-medium-v1/InstanceProfile
+  ChatBotWebServerV2t4gmediumv198D9CC61:
+    Type: AWS::EC2::Instance
+    Properties:
+      AvailabilityZone: us-east-1a
+      IamInstanceProfile:
+        Ref: ChatBotWebServerV2t4gmediumv1InstanceProfile3893C44B
+      ImageId:
+        Ref: SsmParameterValueawsserviceamiamazonlinuxlatestal2023amikernel61arm64C96584B6F00A464EAD1953AFF4B05118Parameter
+      InstanceType: t4g.medium
+      KeyName:
+        Ref: ec2KeyPair
+      SecurityGroupIds:
+        - Fn::GetAtt:
+            - ChatBotServerSecurityGroup2BCBF568
+            - GroupId
+      SubnetId: subnet-018a823f524dc53b3
+      Tags:
+        - Key: Name
+          Value: ChatBotCdkStack/ChatBotWebServerV2-t4g-medium-v1
+      UserData:
+        Fn::Base64:
+          Fn::Sub:
+            - |-
+              #!/bin/bash
+              dnf update -y
+              dnf install git postgresql15 pip docker -y
+
+              #enable pgadmin4
+              usermod -a -G docker ec2-user
+              systemctl start docker
+              systemctl enable docker
+              # start pgAdmin4
+              docker run -d -p 62315:80 \
+                  -e "PGADMIN_DEFAULT_EMAIL=${pgAdmin4UserName}" \
+                  -e "PGADMIN_DEFAULT_PASSWORD=${pgAdmin4Password}" \
+                  -d dpage/pgadmin4
+
+              #start gradio app
+              cd /home/ec2-user
+              #deploy ChatBotWebUI
+              git clone https://github.com/nimysan/ChatBotWebUI.git
+              chown -R ec2-user:ec2-user ChatBotWebUI
+              cd ChatBotWebUI
+
+              #初始化配置
+              cat << EOF > config.json
+              {
+                "pg_config": [
+                  "${pg_host}",
+                  "${pg_port}",
+                  "${pg_database}",
+                  "${pg_username}",
+                  "${pg_password}"
+                ],
+                "openai_key": "${openai_key}"
+              }
+              EOF
+              chown ec2-user:ec2-user config.json
+              su ec2-user -s deploy.sh > dlog 2>&1
+              echo "########### userdata ###########"
+            - pg_port:
+                Fn::GetAtt:
+                  - DatabaseClusterForChatBot
+                  - Endpoint.Port
+              pgAdmin4Password:
+                Ref: pgAdmin4Password
+              openai_key:
+                Ref: openaiKeyParam
+              pg_password:
+                Ref: databasePassword
+              pg_database:
+                Ref: pgDatabaseName
+              pgAdmin4UserName:
+                Ref: pgAdmin4UserName
+              pg_host:
+                Fn::GetAtt:
+                  - DatabaseClusterForChatBot
+                  - Endpoint.Address
+              pg_username: postgres
+    DependsOn:
+      - DatabaseClusterForChatBot
+      - EC2RoleF978FC1C
+    Metadata:
+      aws:cdk:path: ChatBotCdkStack/ChatBotWebServerV2-t4g-medium-v1/Resource
+  ALBAEE750D2:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      LoadBalancerAttributes:
+        - Key: deletion_protection.enabled
+          Value: "false"
+      Name: CDKManagedALB
+      Scheme: internet-facing
+      SecurityGroups:
+        - Fn::GetAtt:
+            - ChatBotALBSecurityGroup952F1AD5
+            - GroupId
+      Subnets:
+        - subnet-018a823f524dc53b3
+        - subnet-0bb927a84db695ba9
+        - subnet-0cf3eb9704d18a4c2
+        - subnet-04f5f4345874ca363
+        - subnet-072c5fa16d98d121c
+        - subnet-05752251c0df531ba
+      Type: application
+    Metadata:
+      aws:cdk:path: ChatBotCdkStack/ALB/Resource
+  ALBalblistener645F2EF3:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - TargetGroupArn:
+            Ref: ALBalblisteneralbtgGroup9913FBA3
+          Type: forward
+      LoadBalancerArn:
+        Ref: ALBAEE750D2
+      Port: 80
+      Protocol: HTTP
+    Metadata:
+      aws:cdk:path: ChatBotCdkStack/ALB/alb-listener/Resource
+  ALBalblisteneralbtgGroup9913FBA3:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Matcher:
+        HttpCode: "302"
+      Name: CDKManagedAlbTg
+      Port: 7860
+      Protocol: HTTP
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: "10"
+        - Key: stickiness.enabled
+          Value: "false"
+      Targets:
+        - Id:
+            Ref: ChatBotWebServerV2t4gmediumv198D9CC61
+      TargetType: instance
+      VpcId: vpc-08cd91d07ef1cfbfa
+    Metadata:
+      aws:cdk:path: ChatBotCdkStack/ALB/alb-listener/alb-tgGroup/Resource
+  UserPool6BA7E5F2:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      AccountRecoverySetting:
+        RecoveryMechanisms:
+          - Name: verified_phone_number
+            Priority: 1
+          - Name: verified_email
+            Priority: 2
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: true
+      EmailVerificationMessage: The verification code to your new account is {####}
+      EmailVerificationSubject: Verify your new account
+      SmsVerificationMessage: The verification code to your new account is {####}
+      UserPoolName: chat-bot-user-pool
+      VerificationMessageTemplate:
+        DefaultEmailOption: CONFIRM_WITH_CODE
+        EmailMessage: The verification code to your new account is {####}
+        EmailSubject: Verify your new account
+        SmsMessage: The verification code to your new account is {####}
+    UpdateReplacePolicy: Retain
+    DeletionPolicy: Retain
+    Metadata:
+      aws:cdk:path: ChatBotCdkStack/UserPool/Resource
+  UserPoolClient2F5918F7:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId:
+        Ref: UserPool6BA7E5F2
+      AllowedOAuthFlows:
+        - implicit
+        - code
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthScopes:
+        - profile
+        - phone
+        - email
+        - openid
+        - aws.cognito.signin.user.admin
+      CallbackURLs:
+        - https://example.com
+      ClientName: chatbot-userpool-client
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_ADMIN_USER_PASSWORD_AUTH
+        - ALLOW_USER_SRP_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+      GenerateSecret: false
+      SupportedIdentityProviders:
+        - COGNITO
+    Metadata:
+      aws:cdk:path: ChatBotCdkStack/UserPoolClient/Resource
+  defaultUser:
+    Type: AWS::Cognito::UserPoolUser
+    Properties:
+      UserPoolId:
+        Ref: UserPool6BA7E5F2
+      Username: chatbotAdmin
+    Metadata:
+      aws:cdk:path: ChatBotCdkStack/defaultUser
+  CDKMetadata:
+    Type: AWS::CDK::Metadata
+    Properties:
+      Analytics: v2:deflate64:H4sIAAAAAAAA/2WQQU/DMAyFf8vuaah62ZkVCYGQqAqckZd6lbc0qRJnCEX976QdGZ04+fm9z4mTSm63stzAly9Udyo07WV8Y1AnUR9MAw4GZHSiRW+DUygS+BlRVYlCFRzx96OzYZzpW+PJeAaTJlKS9SRc52VMzsOu1sHPJy/NH0AwyNhavczlmuPG2QPpRKEGz6S0hW4POkVk+nPa6X4cNSlgsuYlZbslu1xy0685SmuYXybrVf4Orke+PnLVTkLZ3hBbGT88usZaPRNXnUWtCQ2vo//OXKdpdl4Dj2HJ8p9P4hnOcFeVspTV5uiJChcM04CyvdQfjQZLd8UBAAA=
+    Metadata:
+      aws:cdk:path: ChatBotCdkStack/CDKMetadata/Default
+Outputs:
+  databaseendpoint:
+    Value:
+      Fn::GetAtt:
+        - DatabaseClusterForChatBot
+        - Endpoint.Address
+  database:
+    Value:
+      Ref: pgDatabaseName
+  username:
+    Value: postgres¬
+  databasepassword:
+    Value:
+      Ref: databasePassword
+  pgAdmin4url:
+    Value:
+      Fn::Join:
+        - ""
+        - - http://
+          - Fn::GetAtt:
+              - ChatBotWebServerV2t4gmediumv198D9CC61
+              - PublicIp
+          - :62315
+  pg4Adminusernameandpassword:
+    Value: ChatBotCdkStack/pgAdmin4UserName --- ChatBotCdkStack/pgAdmin4Password
+  SageMakerRoleARN:
+    Value:
+      Fn::GetAtt:
+        - SagemakerRole5FDB64E1
+        - Arn
+  chatboturl:
+    Description: ChatBot endpoint
+    Value:
+      Fn::Join:
+        - ""
+        - - http://
+          - Fn::GetAtt:
+              - ChatBotWebServerV2t4gmediumv198D9CC61
+              - PublicIp
+          - :7860
+Rules:
+  CheckBootstrapVersion:
+    Assertions:
+      - Assert:
+          Fn::Not:
+            - Fn::Contains:
+                - - "1"
+                  - "2"
+                  - "3"
+                  - "4"
+                  - "5"
+                - Ref: BootstrapVersion
+        AssertDescription: CDK bootstrap stack version 6 required. Please run 'cdk bootstrap' with a recent version of the CDK CLI.
+
