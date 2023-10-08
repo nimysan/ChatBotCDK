@@ -96,41 +96,7 @@ public class ChatBotCdkStack extends Stack {
 
         CfnDBCluster dbCluster = serverlessV2Cluster(vpc, rdsSg, databaseMasterPassword.getValueAsString(), pgDatabaseName.getValueAsString());
         dbCluster.applyRemovalPolicy(RemovalPolicy.RETAIN);
-//
 
-        //create sagemaker role
-        Map<String, PolicyDocument> inlinePolicies = new HashMap<>();
-        final Object jsonPolicy = new ResourceAsJsonReader().readResourceAsJsonObjects("policy.json");
-        inlinePolicies.put("SageMakerAccessPolicy", PolicyDocument.fromJson(jsonPolicy));
-
-        Role sagemakerRole = Role.Builder.create(this, "SagemakerRole")
-                .assumedBy(new ServicePrincipal("sagemaker.amazonaws.com"))
-                .inlinePolicies(inlinePolicies)
-                .roleName("ChatBotCdkStack-SagemakerRole")
-                .build();
-        sagemakerRole.getRoleArn();
-
-        //创建ec2 role
-        Map<String, PolicyDocument> ec2Policies = new HashMap<>();
-
-        final Object bedrockJsonPolicy = new ResourceAsJsonReader().readResourceAsJsonObjects("bedrock-policy.json");
-        ec2Policies.put("BedrockAccessPolicy", PolicyDocument.fromJson(bedrockJsonPolicy));
-
-        PolicyStatement statement = PolicyStatement.Builder.create()
-                .actions(List.of("iam:GetRole", "iam:PassRole"))
-                .effect(Effect.ALLOW)
-                .resources(List.of(sagemakerRole.getRoleArn()))
-                .build();
-        PolicyDocument doc = PolicyDocument.Builder.create()
-                .statements(List.of(statement))
-                .build();
-
-        ec2Policies.put("passrole", doc);
-        Role ec2Role = Role.Builder.create(this, "EC2Role")
-                .assumedBy(new ServicePrincipal("ec2.amazonaws.com"))
-                .inlinePolicies(ec2Policies)
-                .roleName("ChatBotCdkStack-EC2Role")
-                .build();
         //create cognito
         UserPool userPool = UserPool.Builder.create(this, "UserPool")
                 .userPoolName("chat-bot-user-pool")
@@ -151,6 +117,58 @@ public class ChatBotCdkStack extends Stack {
                 .username("chatbotAdmin")
 //                .te
                 .build();
+//
+
+        //create sagemaker role
+        Map<String, PolicyDocument> inlinePolicies = new HashMap<>();
+        final Object jsonPolicy = new ResourceAsJsonReader().readResourceAsJsonObjects("policy.json");
+        inlinePolicies.put("SageMakerAccessPolicy", PolicyDocument.fromJson(jsonPolicy));
+
+        Role sagemakerRole = Role.Builder.create(this, "SagemakerRole")
+                .assumedBy(new ServicePrincipal("sagemaker.amazonaws.com"))
+                .inlinePolicies(inlinePolicies)
+                .roleName("ChatBotCdkStack-SagemakerRole")
+                .build();
+        sagemakerRole.getRoleArn();
+
+        //创建ec2 role
+        Map<String, PolicyDocument> ec2Policies = new HashMap<>();
+
+        final Object bedrockJsonPolicy = new ResourceAsJsonReader().readResourceAsJsonObjects("bedrock-policy.json");
+        ec2Policies.put("BedrockAccessPolicy", PolicyDocument.fromJson(bedrockJsonPolicy));
+
+        //pass role policy
+        PolicyStatement statement = PolicyStatement.Builder.create()
+                .actions(List.of("iam:GetRole", "iam:PassRole"))
+                .effect(Effect.ALLOW)
+                .resources(List.of(sagemakerRole.getRoleArn()))
+                .build();
+        PolicyDocument doc = PolicyDocument.Builder.create()
+                .statements(List.of(statement))
+                .build();
+
+        ec2Policies.put("passrole", doc);
+
+
+        // cognito
+        //pass role policy
+        PolicyStatement cognitoStatement = PolicyStatement.Builder.create()
+                .actions(List.of("cognito-idp:AdminInitiateAuth"))
+                .effect(Effect.ALLOW)
+                .resources(List.of(userPool.getUserPoolArn()))
+                .build();
+        PolicyDocument cognitoDoc = PolicyDocument.Builder.create()
+                .statements(List.of(cognitoStatement))
+                .build();
+
+        ec2Policies.put("CognitoInvoke", cognitoDoc);
+
+        Role ec2Role = Role.Builder.create(this, "EC2Role")
+                .assumedBy(new ServicePrincipal("ec2.amazonaws.com"))
+                .inlinePolicies(ec2Policies)
+                .roleName("ChatBotCdkStack-EC2Role")
+                .build();
+
 
         //创建EC2
         String userData = null;
@@ -231,29 +249,6 @@ public class ChatBotCdkStack extends Stack {
         }
 
         return sb.toString();
-    }
-
-    private void buildUserPool() {
-        UserPool userPool = UserPool.Builder.create(this, "UserPool")
-                .userPoolName("chat-bot-user-pool")
-
-                .build();
-
-        UserPoolClient userPoolClient = UserPoolClient.Builder
-                .create(this, "UserPoolClient")
-                .userPoolClientName("chatbot-userpool-client")
-                .authFlows(AuthFlow.builder().userPassword(true).userSrp(true).adminUserPassword(true).build())
-                .userPool(userPool)
-                .generateSecret(false)
-                .build();
-
-
-        CfnUserPoolUser user = CfnUserPoolUser.Builder.create(this, "defaultUser")
-                .userPoolId(userPool.getUserPoolId())
-                .username("chatbotAdmin")
-//                .te
-                .build();
-
     }
 
     private ApplicationLoadBalancer buildALB
