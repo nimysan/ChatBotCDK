@@ -1,4 +1,7 @@
 Parameters:
+  VpcParam:
+    Description: Just select the one and only default VPC
+    Type: AWS::EC2::VPC::Id
   InstanceType:
     Type: String
     Default: t4g.medium
@@ -12,7 +15,7 @@ Parameters:
     Description: Database name
   DatabasePassword:
     Type: String
-    Default: tm5guJ1j
+    Default: "*4olVv%U"
     Description: Database master password
   pgAdmin4UserName:
     Type: String
@@ -20,7 +23,7 @@ Parameters:
     Description: pgAdmin4 User name
   pgAdmin4Password:
     Type: String
-    Default: tX9rByOw
+    Default: JExTsUfK
     Description: pgAdmin4 Password
   openaikey:
     Type: String
@@ -67,7 +70,7 @@ Resources:
           FromPort: 7865
           IpProtocol: tcp
           ToPort: 7865
-      VpcId: vpc-08cd91d07ef1cfbfa
+      VpcId: !Ref VpcParam
     Metadata:
       aws:cdk:path: ChatBotCdkStack/ChatBotServerSecurityGroup/Resource
   ChatBotRDSSecurityGroup399D370C:
@@ -87,7 +90,7 @@ Resources:
               - ChatBotServerSecurityGroup2BCBF568
               - GroupId
           ToPort: 5432
-      VpcId: vpc-08cd91d07ef1cfbfa
+      VpcId: !Ref VpcParam
     Metadata:
       aws:cdk:path: ChatBotCdkStack/ChatBotRDSSecurityGroup/Resource
   ChatBotALBSecurityGroup952F1AD5:
@@ -126,7 +129,7 @@ Resources:
               - ChatBotServerSecurityGroup2BCBF568
               - GroupId
           ToPort: 62315
-      VpcId: vpc-08cd91d07ef1cfbfa
+      VpcId: !Ref VpcParam
     Metadata:
       aws:cdk:path: ChatBotCdkStack/ChatBotALBSecurityGroup/Resource
   DatabaseClusterForChatBot:
@@ -302,31 +305,51 @@ Resources:
                   "${pg_username}",
                   "${pg_password}"
                 ],
-                "openai_key": "${openai_key}"
+                "openai_key": "${openai_key}",
+                "bedrock_llm": {
+                  "region": "us-west-2",
+                  "model_id": "anthropic.claude-v2"
+                },
+                "bedrock_embeddings": {
+                  "region": "us-west-2",
+                  "model_id": "amazon.titan-embed-text-v1"
+                },
+                "bot": {
+                  "llm": "bedrock",
+                  "embeddings": "bedrock"
+                },
+                "sagemaker_embeddings_endpoint": {
+                  "endpoint": "huggingface-pytorch-inference-2023-09-28-08-24-28-262",
+                  "region": "us-west-2"
+                },
+                "sagemaker_llm_endpoint": {
+                  "endpoint": "ChatGLM-6B-SageMaker-2023-09-27-14-35-40-172",
+                  "region": "us-west-2"
+                }
               }
               EOF
               chown ec2-user:ec2-user config.json
               su ec2-user -s deploy.sh > dlog 2>&1
               echo "########### userdata ###########"
-            - pgAdmin4UserName:
-                Ref: pgAdmin4UserName
-              pg_database:
-                Ref: Databasename
-              pg_password:
-                Ref: DatabasePassword
+            - pgAdmin4Password:
+                Ref: pgAdmin4Password
               openai_key:
                 Ref: openaikey
-              pgAdmin4Password:
-                Ref: pgAdmin4Password
-              pg_port:
-                Fn::GetAtt:
-                  - DatabaseClusterForChatBot
-                  - Endpoint.Port
-              pg_username: postgres
+              pg_password:
+                Ref: DatabasePassword
+              pg_database:
+                Ref: Databasename
+              pgAdmin4UserName:
+                Ref: pgAdmin4UserName
               pg_host:
                 Fn::GetAtt:
                   - DatabaseClusterForChatBot
                   - Endpoint.Address
+              pg_username: postgres
+              pg_port:
+                Fn::GetAtt:
+                  - DatabaseClusterForChatBot
+                  - Endpoint.Port
     DependsOn:
       - DatabaseClusterForChatBot
       - EC2RoleF978FC1C

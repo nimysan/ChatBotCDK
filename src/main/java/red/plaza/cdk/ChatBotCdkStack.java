@@ -1,6 +1,5 @@
 package red.plaza.cdk;
 
-import com.google.gson.Gson;
 import org.apache.commons.io.IOUtils;
 import software.amazon.awscdk.*;
 import software.amazon.awscdk.Stack;
@@ -31,8 +30,8 @@ import java.util.stream.Collectors;
 public class ChatBotCdkStack extends Stack {
 
     private final static int DB_PORT = 5432;
-    private final static int CAHT_BOT_PORT = 7860;
-    private final static int CAHT_BOT_MANAGER_PORT = 7865;
+    private final static int CHAT_BOT_PORT = 7860;
+    private final static int CHAT_BOT_MANAGER_PORT = 7865;
     private final static int PGADMIN_PORT = 62315;
 
     public ChatBotCdkStack(final Construct scope, final String id) {
@@ -41,7 +40,6 @@ public class ChatBotCdkStack extends Stack {
 
     public ChatBotCdkStack(final Construct scope, final String id, final StackProps props) {
         super(scope, id, props);
-//        CfnParameter vpcParam = CfnParameter.Builder.create(this, "VpcParam").type("AWS::EC2::VPC::Id").build();
 
         // 定义实例类型参数
         CfnParameter instanceTypeParameter = CfnParameter.Builder.create(this, "InstanceType")
@@ -50,28 +48,28 @@ public class ChatBotCdkStack extends Stack {
                 .defaultValue("t4g.medium").build();
         // The code that defines your stack goes here
         // Parameters
-        CfnParameter ec2KeyPairName = CfnParameter.Builder.create(this, "ec2 key pair").type("String").description("EC2 Key Pair name").build();
-
-        CfnParameter pgDatabaseName = CfnParameter.Builder.create(this, "Database name").type("String").defaultValue("knowledge").description("Database name").build();
-        CfnParameter databaseMasterPassword = CfnParameter.Builder.create(this, "Database Password").type("String").defaultValue(generateRandomPassword(8)).description("Database master password").build();
+        CfnParameter ec2KeyPairName = CfnParameter.Builder.create(this, "ec2keypair").type("String").description("EC2 Key Pair name").build();
 
 
-        CfnParameter pgAdmin4UserName = CfnParameter.Builder.create(this, "pgAdmin4 User Name").type("String").defaultValue("pgadmin4").description("pgAdmin4 User name").build();
-        CfnParameter pgAdmin4Password = CfnParameter.Builder.create(this, "pgAdmin4 Password").type("String").defaultValue(generateRandomPassword(8)).description("pgAdmin4 Password").build();
+        CfnParameter pgDatabaseName = CfnParameter.Builder.create(this, "databasename").type("String").defaultValue("knowledge").description("Database name").build();
+        CfnParameter databaseMasterPassword = CfnParameter.Builder.create(this, "databasepassword").type("String").defaultValue(generateRandomPassword(8)).description("Database master password").build();
 
 
-        CfnParameter openaiKeyParam = CfnParameter.Builder.create(this, "openai key").type("String").description("OpenAI key, can be changed after initialized").build();
+        CfnParameter pgAdmin4UserName = CfnParameter.Builder.create(this, "pgAdmin4UserName").type("String").defaultValue("pgadmin4").description("pgAdmin4 User name").build();
+        CfnParameter pgAdmin4Password = CfnParameter.Builder.create(this, "pgAdmin4Password").type("String").defaultValue(generateRandomPassword(8)).description("pgAdmin4 Password").build();
+
+
+        CfnParameter openaiKeyParam = CfnParameter.Builder.create(this, "openaikey").type("String").description("OpenAI key, can be changed after initialized").build();
         //Resources
-        IVpc vpc = Vpc.fromLookup(this, "vpc", VpcLookupOptions.builder().isDefault(true).build());
-
+        IVpc vpc = Vpc.fromLookup(this, "VPC", VpcLookupOptions.builder().isDefault(true).build());
 
         //EC2的安全组
         SecurityGroup ec2sg = SecurityGroup.Builder.create(this, "ChatBotServerSecurityGroup").vpc(vpc).description("Allow ssh access to ec2 instances").allowAllOutbound(true).build();
         ec2sg.addIngressRule(Peer.anyIpv4(), Port.tcp(22), "allow ssh access from the world");
         ec2sg.addIngressRule(Peer.ipv4(vpc.getVpcCidrBlock()), Port.tcp(DB_PORT), "Connect to pg");
         ec2sg.addIngressRule(Peer.ipv4(vpc.getVpcCidrBlock()), Port.tcp(PGADMIN_PORT), "ALB to pg admin webui");
-        ec2sg.addIngressRule(Peer.ipv4(vpc.getVpcCidrBlock()), Port.tcp(CAHT_BOT_PORT), "ALB to gradio webui");
-        ec2sg.addIngressRule(Peer.ipv4(vpc.getVpcCidrBlock()), Port.tcp(CAHT_BOT_MANAGER_PORT), "ALB to gradio manager webui");
+        ec2sg.addIngressRule(Peer.ipv4(vpc.getVpcCidrBlock()), Port.tcp(CHAT_BOT_PORT), "ALB to gradio webui");
+        ec2sg.addIngressRule(Peer.ipv4(vpc.getVpcCidrBlock()), Port.tcp(CHAT_BOT_MANAGER_PORT), "ALB to gradio manager webui");
 
 
         //数据库的安全组
@@ -190,7 +188,7 @@ public class ChatBotCdkStack extends Stack {
         CfnOutput.Builder.create(this, "SageMaker Role ARN").value(sagemakerRole.getRoleArn()).build();
 
 
-        CfnOutput.Builder.create(this, "chatbot-url").value("http://" + ec2Instance.getInstancePublicIp() + ":" + CAHT_BOT_PORT).description("ChatBot endpoint").build();
+        CfnOutput.Builder.create(this, "chatbot-url").value("http://" + ec2Instance.getInstancePublicIp() + ":" + CHAT_BOT_PORT).description("ChatBot endpoint").build();
     }
 
     private String generateRandomPassword(int len) {
