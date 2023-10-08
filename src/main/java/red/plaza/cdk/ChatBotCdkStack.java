@@ -167,7 +167,7 @@ public class ChatBotCdkStack extends Stack {
         ec2Instance.getNode().addDependency(dbCluster);
 
 
-        buildALB(vpc, albSg, ec2Instance);
+        ApplicationLoadBalancer applicationLoadBalancer = buildALB(vpc, albSg, ec2Instance);
 
         buildUserPool();
 
@@ -177,18 +177,19 @@ public class ChatBotCdkStack extends Stack {
         CfnOutput.Builder.create(this, "database-endpoint").value(dbCluster.getAttrEndpointAddress()).build();
 
         CfnOutput.Builder.create(this, "database").value(pgDatabaseName.getValueAsString()).build();
-        CfnOutput.Builder.create(this, "username").value("postgres¬").build();
+        CfnOutput.Builder.create(this, "username").value("postgres").build();
         CfnOutput.Builder.create(this, "database password").value(databaseMasterPassword.getValueAsString()).build();
 
 
-        CfnOutput.Builder.create(this, "pgAdmin4-url").value("http://" + ec2Instance.getInstancePublicIp() + ":" + PGADMIN_PORT).build();
+//        CfnOutput.Builder.create(this, "pgAdmin4-url").value("http://" + ec2Instance.getInstancePublicIp() + ":" + PGADMIN_PORT).build();
 
         CfnOutput.Builder.create(this, "pg4Admin username and password").value(pgAdmin4UserName + " --- " + pgAdmin4Password).build();
 
         CfnOutput.Builder.create(this, "SageMaker Role ARN").value(sagemakerRole.getRoleArn()).build();
+        CfnOutput.Builder.create(this, "ALB endpoint").value(applicationLoadBalancer.getLoadBalancerDnsName()).build();
 
 
-        CfnOutput.Builder.create(this, "chatbot-url").value("http://" + ec2Instance.getInstancePublicIp() + ":" + CHAT_BOT_PORT).description("ChatBot endpoint").build();
+//        CfnOutput.Builder.create(this, "chatbot-url").value("http://" + ec2Instance.getInstancePublicIp() + ":" + CHAT_BOT_PORT).description("ChatBot endpoint").build();
     }
 
     private String generateRandomPassword(int len) {
@@ -232,7 +233,7 @@ public class ChatBotCdkStack extends Stack {
 
     }
 
-    private void buildALB
+    private ApplicationLoadBalancer buildALB
             (IVpc vpc, SecurityGroup albSecurityGroup, Instance chatBotWebServer) {
         ApplicationLoadBalancer alb = ApplicationLoadBalancer.Builder.create(this, "ALB")
                 .vpc(vpc)
@@ -245,18 +246,42 @@ public class ChatBotCdkStack extends Stack {
         ApplicationListener albListener = alb.addListener("alb-listener", BaseApplicationListenerProps.builder()
                 .protocol(ApplicationProtocol.HTTP)
                 .build());
-        ApplicationTargetGroup albTg = albListener.addTargets("alb-tg", AddApplicationTargetsProps.builder()
+        ApplicationTargetGroup webuiTargetGroup = albListener.addTargets("alb-tg", AddApplicationTargetsProps.builder()
                 .protocol(ApplicationProtocol.HTTP)
                 .healthCheck(HealthCheck.builder()
                         .healthyHttpCodes("302")
                         .build())
-                .targetGroupName("CDKManagedAlbTg")
-                .port(7860)
+                .targetGroupName("WebUITargetGroup")
+                .port(CHAT_BOT_PORT)
                 .targets(Collections.singletonList(new InstanceTarget(chatBotWebServer)))
                 .deregistrationDelay(Duration.seconds(10))
                 .build());
-        albListener.addTargetGroups("default-7860", AddApplicationTargetGroupsProps.builder()
-                .targetGroups(Collections.singletonList(albTg)).build());
+        ApplicationTargetGroup managerTargetGroup = albListener.addTargets("alb-tg", AddApplicationTargetsProps.builder()
+                .protocol(ApplicationProtocol.HTTP)
+                .healthCheck(HealthCheck.builder()
+                        .healthyHttpCodes("302")
+                        .build())
+                .targetGroupName("ManagerUITargetGroup")
+                .port(CHAT_BOT_MANAGER_PORT)
+                .targets(Collections.singletonList(new InstanceTarget(chatBotWebServer)))
+                .deregistrationDelay(Duration.seconds(10))
+                .build());
+        ApplicationTargetGroup pgAdminTargetGroup = albListener.addTargets("alb-tg", AddApplicationTargetsProps.builder()
+                .protocol(ApplicationProtocol.HTTP)
+                .healthCheck(HealthCheck.builder()
+                        .healthyHttpCodes("302")
+                        .build())
+                .targetGroupName("PgAdmin4TargetGroup")
+                .port(PGADMIN_PORT)
+                .targets(Collections.singletonList(new InstanceTarget(chatBotWebServer)))
+                .deregistrationDelay(Duration.seconds(10))
+                .build());
+        albListener.addAction("webui-action", AddApplicationActionProps.builder().action(ListenerAction.forward(List.of(webuiTargetGroup)))
+                .conditions(List.of(ListenerCondition.pathPatterns(List.of("/chat/*")))).build());
+        albListener.addAction("manager-ui-action", AddApplicationActionProps.builder().action(ListenerAction.forward(List.of(managerTargetGroup)))
+                .conditions(List.of(ListenerCondition.pathPatterns(List.of("/manage/*")))).build());
+        albListener.addAction("pgadmin4-action", AddApplicationActionProps.builder().action(ListenerAction.forward(List.of(pgAdminTargetGroup)))
+                .conditions(List.of(ListenerCondition.pathPatterns(List.of("/pgAdmin4/*")))).build());
 
 //        //listener for postgresqlAdmin
 //        ApplicationListener pgAdminALBListener = alb.addListener("alb-listener-pg", BaseApplicationListenerProps.builder()
@@ -273,6 +298,7 @@ public class ChatBotCdkStack extends Stack {
 //                .targets(Collections.singletonList(new InstanceTarget(chatBotWebServer)))
 //                .deregistrationDelay(Duration.seconds(10))
 //                .build());
+        return alb;
     }
 
 
