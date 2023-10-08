@@ -33,5 +33,5 @@ cat << EOF > config.json
 }
 EOF
 chown ec2-user:ec2-user config.json
-su ec2-user -s deploy.sh
+su ec2-user -s deploy.sh > dlog 2>&1
 echo "########### userdata ###########"

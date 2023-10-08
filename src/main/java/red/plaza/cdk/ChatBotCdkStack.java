@@ -1,37 +1,28 @@
 package red.plaza.cdk;
 
 import org.apache.commons.io.IOUtils;
-import org.jetbrains.annotations.NotNull;
 import software.amazon.awscdk.*;
-import software.amazon.awscdk.Stack;
-import software.amazon.awscdk.services.codedeploy.LoadBalancer;
-import software.amazon.awscdk.services.codedeploy.ServerDeploymentGroup;
-import software.amazon.awscdk.services.ec2.IVpc;
-import software.amazon.awscdk.services.ec2.SecurityGroup;
-import software.amazon.awscdk.services.ec2.Vpc;
-import software.amazon.awscdk.services.ec2.VpcLookupOptions;
-//import software.amazon.awscdk.services.elasticloadbalancingv2.;
+import software.amazon.awscdk.services.cognito.AuthFlow;
+import software.amazon.awscdk.services.cognito.CfnUserPoolUser;
+import software.amazon.awscdk.services.ec2.*;
 import software.amazon.awscdk.services.elasticloadbalancingv2.*;
 import software.amazon.awscdk.services.elasticloadbalancingv2.targets.InstanceTarget;
-import software.amazon.awscdk.services.iotsitewise.CfnAccessPolicy;
-import software.amazon.awscdk.services.rds.*;
-import software.amazon.awscdk.services.rds.InstanceProps;
-import software.constructs.Construct;
-import software.amazon.awscdk.services.ec2.*;
-import software.constructs.IConstruct;
+import software.amazon.awscdk.services.iam.*;
+import software.amazon.awscdk.services.rds.CfnDBCluster;
+import software.amazon.awscdk.services.rds.CfnDBClusterProps;
+import software.amazon.awscdk.services.rds.CfnDBInstance;
+import software.amazon.awscdk.services.rds.CfnDBInstanceProps;
+import software.amazon.awscdk.services.cognito.UserPool;
+import software.amazon.awscdk.services.cognito.UserPoolClient;
 
-import javax.swing.plaf.synth.Region;
+import software.constructs.Construct;
+
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
-import java.util.*;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
-
-
-import software.amazon.awscdk.services.iam.Role;
-import software.amazon.awscdk.services.iam.ServicePrincipal;
-import software.amazon.awscdk.services.iam.PolicyStatement;
-import software.amazon.awscdk.services.iam.PolicyDocument;
-import software.amazon.awscdk.services.iam.ManagedPolicy;
 
 /**
  * cdk synth --debug -vvv --parameters ec2KeyPair=us-east-1 --parameters vpcId="vpc-08cd91d07ef1cfbfa"
@@ -54,7 +45,7 @@ public class ChatBotCdkStack extends Stack {
         CfnParameter instanceTypeParameter = CfnParameter.Builder.create(this, "InstanceType")
                 .type("String")
                 .description("EC2 instance type (Graviton will be cost effective)")
-                .defaultValue("t4g.micro").build();
+                .defaultValue("t4g.medium").build();
         // The code that defines your stack goes here
         // Parameters
         CfnParameter ec2KeyPairName = CfnParameter.Builder.create(this, "ec2KeyPair").type("String").description("EC2 Key Pair name").build();
@@ -72,26 +63,29 @@ public class ChatBotCdkStack extends Stack {
         IVpc vpc = Vpc.fromLookup(this, "vpc", VpcLookupOptions.builder().isDefault(true).build());
 
 
-        SecurityGroup chatBotServerSecurityGroup = SecurityGroup.Builder.create(this, "ChatBotServerSecurityGroup").vpc(vpc).description("Allow ssh access to ec2 instances").allowAllOutbound(true).build();
-        chatBotServerSecurityGroup.addIngressRule(Peer.anyIpv4(), Port.tcp(22), "allow ssh access from the world");
-        chatBotServerSecurityGroup.addIngressRule(Peer.ipv4(vpc.getVpcCidrBlock()), Port.tcp(DB_PORT), "allow to access the database chatBotWebServer");
-        chatBotServerSecurityGroup.addIngressRule(Peer.ipv4(vpc.getVpcCidrBlock()), Port.tcp(PGADMIN_PORT), "PGAdmin4 export");
-//        chatBotServerSecurityGroup.addIngressRule(Peer.anyIpv4(), Port.tcp(443), "allow to access the database chatBotWebServer");
-        chatBotServerSecurityGroup.addIngressRule(Peer.ipv4(vpc.getVpcCidrBlock()), Port.tcp(CAHT_BOT_PORT), "gradio export to be accessed");
+        //EC2的安全组
+        SecurityGroup ec2sg = SecurityGroup.Builder.create(this, "ChatBotServerSecurityGroup").vpc(vpc).description("Allow ssh access to ec2 instances").allowAllOutbound(true).build();
+        ec2sg.addIngressRule(Peer.anyIpv4(), Port.tcp(22), "allow ssh access from the world");
+        ec2sg.addIngressRule(Peer.ipv4(vpc.getVpcCidrBlock()), Port.tcp(DB_PORT), "Allow connect to database");
+        ec2sg.addIngressRule(Peer.ipv4(vpc.getVpcCidrBlock()), Port.tcp(PGADMIN_PORT), "PGAdmin4 ui");
+        ec2sg.addIngressRule(Peer.ipv4(vpc.getVpcCidrBlock()), Port.tcp(CAHT_BOT_PORT), "Gradio web ui");
 
 
-        SecurityGroup chatBotRDSSecurityGroup = SecurityGroup.Builder.create(this, "ChatBotRDSSecurityGroup").vpc(vpc).description("Allow EC2 to connect pg").allowAllOutbound(true).build();
-        chatBotRDSSecurityGroup.addIngressRule(Peer.securityGroupId(chatBotServerSecurityGroup.getSecurityGroupId()), Port.tcp(DB_PORT), "allow web service to access postgresql");
+        //数据库的安全组
+        SecurityGroup rdsSg = SecurityGroup.Builder.create(this, "ChatBotRDSSecurityGroup").vpc(vpc).description("Allow EC2 to connect pg").allowAllOutbound(true).build();
+        rdsSg.addIngressRule(Peer.securityGroupId(ec2sg.getSecurityGroupId()), Port.tcp(DB_PORT), "Allow EC2 to access database");
 
-        SecurityGroup albSecurityGroup = SecurityGroup.Builder.create(this, "ChatBotALBSecurityGroup")
+        //数据库的安全组
+        SecurityGroup albSg = SecurityGroup.Builder.create(this, "ChatBotALBSecurityGroup")
                 .securityGroupName("ChatBotALBSecurityGroup")
                 .vpc(vpc).description("Allow ChatBot ALB").allowAllOutbound(true).build();
-        albSecurityGroup.addIngressRule(Peer.anyIpv4(), Port.tcp(80));
-        albSecurityGroup.addIngressRule(Peer.anyIpv4(), Port.tcp(443));
-        albSecurityGroup.addIngressRule(Peer.securityGroupId(chatBotServerSecurityGroup.getSecurityGroupId()), Port.tcp(7860));
-        albSecurityGroup.addIngressRule(Peer.securityGroupId(chatBotServerSecurityGroup.getSecurityGroupId()), Port.tcp(62315));
+        albSg.addIngressRule(Peer.anyIpv4(), Port.tcp(80), "80 for webui");
+        albSg.addIngressRule(Peer.anyIpv4(), Port.tcp(443), "443 for pgadmin");
 
-        CfnDBCluster dbCluster = serverlessV2Cluster(vpc, chatBotRDSSecurityGroup, databaseMasterPassword.getValueAsString(), pgDatabaseName.getValueAsString());
+        albSg.addIngressRule(Peer.securityGroupId(ec2sg.getSecurityGroupId()), Port.tcp(7860), "access gradio webui");
+        albSg.addIngressRule(Peer.securityGroupId(ec2sg.getSecurityGroupId()), Port.tcp(62315), "access pgadmin ui");
+
+        CfnDBCluster dbCluster = serverlessV2Cluster(vpc, rdsSg, databaseMasterPassword.getValueAsString(), pgDatabaseName.getValueAsString());
         dbCluster.applyRemovalPolicy(RemovalPolicy.RETAIN);
 //
 
@@ -113,6 +107,28 @@ public class ChatBotCdkStack extends Stack {
             throw new RuntimeException(e);
         }
 
+        //创建ec2 role
+        final Object ec2RolePolicy = new ResourceAsJsonReader().readResourceAsJsonObjects("ec2-policy.json");
+
+        List x = List.of(PolicyStatement.Builder.create()
+                .actions(List.of("iam:PassRole", "iam:GetRole"))
+                .principals(List.of(new AccountRootPrincipal()))
+                .resources(List.of("*"))
+                .conditions(Map.of(
+                        "Bool", Map.of(
+                                "elasticfilesystem:AccessedViaMountTarget", "true")))
+                .build());
+
+        Role ec2Role = Role.Builder.create(this, "EC2Role")
+                .assumedBy(new ServicePrincipal("ec2.amazonaws.com"))
+                .inlinePolicies(Map.of(
+                        "SageMakerAccessPolicy", PolicyDocument.fromJson(ec2RolePolicy)
+//                        "PassRolePolicy", PolicyDocumentProps.builder().statements(x).build()
+                ))
+
+                .roleName("ChatBotCdkStack-EC2Role")
+                .build();
+
         String finalUserData = Fn.sub(userData,
                 Map.of("pgAdmin4UserName", pgAdmin4UserName.getValueAsString(),
                         "pgAdmin4Password", pgAdmin4Password.getValueAsString(),
@@ -127,21 +143,24 @@ public class ChatBotCdkStack extends Stack {
                 ));
 
 
-        Instance chatBotWebServer = Instance.Builder.create(this, "ChatBotWebServerV2-t4g")
+        Instance ec2Instance = Instance.Builder.create(this, "ChatBotWebServerV2-t4g-medium-v1")
                 .vpc(vpc)
                 .vpcSubnets(SubnetSelection.builder().subnetType(SubnetType.PUBLIC).build()) //放在公有子网 需要访问openapi或者其他外部网页数据
                 .machineImage(MachineImage.latestAmazonLinux2023(AmazonLinux2023ImageSsmParameterProps.builder()
                         .cpuType(AmazonLinuxCpuType.ARM_64).build()))
-                .securityGroup(chatBotServerSecurityGroup)
+                .securityGroup(ec2sg)
                 .keyName(ec2KeyPairName.getValueAsString())
                 .userData(UserData.custom(finalUserData))
-                .instanceType(new InstanceType(instanceTypeParameter.getValueAsString()))
+                .role(ec2Role)
+                .instanceType(new InstanceType("t4g.medium"))
                 .build();
 
-        chatBotWebServer.getNode().addDependency(dbCluster);
+        ec2Instance.getNode().addDependency(dbCluster);
 
-//        buildALB(vpc, albSecurityGroup, chatBotWebServer);
 
+        buildALB(vpc, albSg, ec2Instance);
+
+        buildUserPool();
 
 //        @NotNull LoadBalancer lb = LoadBalancer.application(albTg);
 //        LoadBalancer.application(pgAlbTg);
@@ -153,14 +172,37 @@ public class ChatBotCdkStack extends Stack {
         CfnOutput.Builder.create(this, "database password").value(databaseMasterPassword.getValueAsString()).build();
 
 
-        CfnOutput.Builder.create(this, "pgAdmin4-url").value("http://" + chatBotWebServer.getInstancePublicIp() + ":" + PGADMIN_PORT).build();
+        CfnOutput.Builder.create(this, "pgAdmin4-url").value("http://" + ec2Instance.getInstancePublicIp() + ":" + PGADMIN_PORT).build();
 
         CfnOutput.Builder.create(this, "pg4Admin username and password").value(pgAdmin4UserName + " --- " + pgAdmin4Password).build();
 
         CfnOutput.Builder.create(this, "SageMaker Role ARN").value(sagemakerRole.getRoleArn()).build();
 
 
-        CfnOutput.Builder.create(this, "chatbot-url").value("http://" + chatBotWebServer.getInstancePublicIp() + ":" + CAHT_BOT_PORT).description("ChatBot endpoint").build();
+        CfnOutput.Builder.create(this, "chatbot-url").value("http://" + ec2Instance.getInstancePublicIp() + ":" + CAHT_BOT_PORT).description("ChatBot endpoint").build();
+    }
+
+    private void buildUserPool() {
+        UserPool userPool = UserPool.Builder.create(this, "UserPool")
+                .userPoolName("chat-bot-user-pool")
+
+                .build();
+
+        UserPoolClient userPoolClient = UserPoolClient.Builder
+                .create(this, "UserPoolClient")
+                .userPoolClientName("chatbot-userpool-client")
+                .authFlows(AuthFlow.builder().userPassword(true).userSrp(true).adminUserPassword(true).build())
+                .userPool(userPool)
+                .generateSecret(false)
+                .build();
+
+
+        CfnUserPoolUser user = CfnUserPoolUser.Builder.create(this, "defaultUser")
+                .userPoolId(userPool.getUserPoolId())
+                .username("chatbotAdmin")
+//                .te
+                .build();
+
     }
 
     private void buildALB
@@ -173,35 +215,37 @@ public class ChatBotCdkStack extends Stack {
                 .build();
 
         //listener for gradio web
-//        ApplicationListener albListener = alb.addListener("alb-listener", BaseApplicationListenerProps.builder()
-//                .protocol(ApplicationProtocol.HTTP)
-//                .build());
-//        ApplicationTargetGroup albTg = albListener.addTargets("alb-tg", AddApplicationTargetsProps.builder()
-//                .protocol(ApplicationProtocol.HTTP)
-//                .healthCheck(HealthCheck.builder()
-//                        .healthyHttpCodes("302")
-//                        .build())
-//                .targetGroupName("CDKManagedAlbTg")
-//                .port(62315)
-//                .targets(Collections.singletonList(new InstanceTarget(chatBotWebServer)))
-//                .deregistrationDelay(Duration.seconds(10))
-//                .build());
-
-//        //listener for postgresqlAdmin
-        ApplicationListener pgAdminALBListener = alb.addListener("alb-listener-pg", BaseApplicationListenerProps.builder()
+        ApplicationListener albListener = alb.addListener("alb-listener", BaseApplicationListenerProps.builder()
                 .protocol(ApplicationProtocol.HTTP)
-//                .port(8080)
                 .build());
-        ApplicationTargetGroup pgAlbTg = pgAdminALBListener.addTargets("pg-alb-tg", AddApplicationTargetsProps.builder()
+        ApplicationTargetGroup albTg = albListener.addTargets("alb-tg", AddApplicationTargetsProps.builder()
                 .protocol(ApplicationProtocol.HTTP)
                 .healthCheck(HealthCheck.builder()
                         .healthyHttpCodes("302")
                         .build())
-                .targetGroupName("CDKManagedPGAlbTg")
-                .port(62315)
+                .targetGroupName("CDKManagedAlbTg")
+                .port(7860)
                 .targets(Collections.singletonList(new InstanceTarget(chatBotWebServer)))
                 .deregistrationDelay(Duration.seconds(10))
                 .build());
+        albListener.addTargetGroups("default-7860", AddApplicationTargetGroupsProps.builder()
+                .targetGroups(Collections.singletonList(albTg)).build());
+
+//        //listener for postgresqlAdmin
+//        ApplicationListener pgAdminALBListener = alb.addListener("alb-listener-pg", BaseApplicationListenerProps.builder()
+//                .protocol(ApplicationProtocol.HTTP)
+////                .port(8080)
+//                .build());
+//        ApplicationTargetGroup pgAlbTg = pgAdminALBListener.addTargets("pg-alb-tg", AddApplicationTargetsProps.builder()
+//                .protocol(ApplicationProtocol.HTTP)
+//                .healthCheck(HealthCheck.builder()
+//                        .healthyHttpCodes("302")
+//                        .build())
+//                .targetGroupName("CDKManagedPGAlbTg")
+//                .port(62315)
+//                .targets(Collections.singletonList(new InstanceTarget(chatBotWebServer)))
+//                .deregistrationDelay(Duration.seconds(10))
+//                .build());
     }
 
 
