@@ -239,13 +239,13 @@ public class ChatBotCdkStack extends Stack {
             (IVpc vpc, SecurityGroup albSecurityGroup, Instance chatBotWebServer) {
         ApplicationLoadBalancer alb = ApplicationLoadBalancer.Builder.create(this, "ALB")
                 .vpc(vpc)
-                .loadBalancerName("ChatBotALB")
+                .loadBalancerName("ChatBotApplicationLoadBalancer")
                 .securityGroup(albSecurityGroup)
                 .internetFacing(true)
                 .build();
 
         //listener for gradio web
-        ApplicationListener albListener = alb.addListener("alb-listener", BaseApplicationListenerProps.builder()
+        ApplicationListener albListener = alb.addListener("nginx-listener", BaseApplicationListenerProps.builder()
                 .protocol(ApplicationProtocol.HTTP)
                 .build());
         ApplicationTargetGroup webuiTargetGroup = albListener.addTargets("alb-webui-tg", AddApplicationTargetsProps.builder()
