@@ -252,7 +252,7 @@ public class ChatBotCdkStack extends Stack {
                         .healthyHttpCodes("200")
                         .build())
                 .targetGroupName("WebUITargetGroup")
-                .port(CHAT_BOT_PORT)
+                .port(80)
                 .targets(Collections.singletonList(new InstanceTarget(chatBotWebServer)))
                 .deregistrationDelay(Duration.seconds(10))
                 .build());
@@ -262,7 +262,7 @@ public class ChatBotCdkStack extends Stack {
                         .healthyHttpCodes("200")
                         .build())
                 .targetGroupName("ManagerUITargetGroup")
-                .port(CHAT_BOT_MANAGER_PORT)
+                .port(80)
                 .targets(Collections.singletonList(new InstanceTarget(chatBotWebServer)))
                 .deregistrationDelay(Duration.seconds(10))
                 .build());
