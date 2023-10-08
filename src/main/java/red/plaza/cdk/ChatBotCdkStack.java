@@ -277,11 +277,11 @@ public class ChatBotCdkStack extends Stack {
                 .deregistrationDelay(Duration.seconds(10))
                 .build());
         albListener.addAction("webui-action", AddApplicationActionProps.builder().action(ListenerAction.forward(List.of(webuiTargetGroup)))
-                .conditions(List.of(ListenerCondition.pathPatterns(List.of("/chat/*")))).build());
+                .conditions(List.of(ListenerCondition.pathPatterns(List.of("/chat/*")))).priority(100).build());
         albListener.addAction("manager-ui-action", AddApplicationActionProps.builder().action(ListenerAction.forward(List.of(managerTargetGroup)))
-                .conditions(List.of(ListenerCondition.pathPatterns(List.of("/manage/*")))).build());
+                .conditions(List.of(ListenerCondition.pathPatterns(List.of("/manage/*")))).priority(110).build());
         albListener.addAction("pgadmin4-action", AddApplicationActionProps.builder().action(ListenerAction.forward(List.of(pgAdminTargetGroup)))
-                .conditions(List.of(ListenerCondition.pathPatterns(List.of("/pgAdmin4/*")))).build());
+                .conditions(List.of(ListenerCondition.pathPatterns(List.of("/pgAdmin4/*")))).priority(120).build());
 
 //        //listener for postgresqlAdmin
 //        ApplicationListener pgAdminALBListener = alb.addListener("alb-listener-pg", BaseApplicationListenerProps.builder()
