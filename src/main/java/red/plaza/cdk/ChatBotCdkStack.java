@@ -237,7 +237,7 @@ public class ChatBotCdkStack extends Stack {
             (IVpc vpc, SecurityGroup albSecurityGroup, Instance chatBotWebServer) {
         ApplicationLoadBalancer alb = ApplicationLoadBalancer.Builder.create(this, "ALB")
                 .vpc(vpc)
-                .loadBalancerName("CDKManagedALB")
+                .loadBalancerName("ChatBotALB")
                 .securityGroup(albSecurityGroup)
                 .internetFacing(true)
                 .build();
@@ -246,7 +246,7 @@ public class ChatBotCdkStack extends Stack {
         ApplicationListener albListener = alb.addListener("alb-listener", BaseApplicationListenerProps.builder()
                 .protocol(ApplicationProtocol.HTTP)
                 .build());
-        ApplicationTargetGroup webuiTargetGroup = albListener.addTargets("alb-tg", AddApplicationTargetsProps.builder()
+        ApplicationTargetGroup webuiTargetGroup = albListener.addTargets("alb-webui-tg", AddApplicationTargetsProps.builder()
                 .protocol(ApplicationProtocol.HTTP)
                 .healthCheck(HealthCheck.builder()
                         .healthyHttpCodes("302")
@@ -256,7 +256,7 @@ public class ChatBotCdkStack extends Stack {
                 .targets(Collections.singletonList(new InstanceTarget(chatBotWebServer)))
                 .deregistrationDelay(Duration.seconds(10))
                 .build());
-        ApplicationTargetGroup managerTargetGroup = albListener.addTargets("alb-tg", AddApplicationTargetsProps.builder()
+        ApplicationTargetGroup managerTargetGroup = albListener.addTargets("alb-manager-tg", AddApplicationTargetsProps.builder()
                 .protocol(ApplicationProtocol.HTTP)
                 .healthCheck(HealthCheck.builder()
                         .healthyHttpCodes("302")
@@ -266,7 +266,7 @@ public class ChatBotCdkStack extends Stack {
                 .targets(Collections.singletonList(new InstanceTarget(chatBotWebServer)))
                 .deregistrationDelay(Duration.seconds(10))
                 .build());
-        ApplicationTargetGroup pgAdminTargetGroup = albListener.addTargets("alb-tg", AddApplicationTargetsProps.builder()
+        ApplicationTargetGroup pgAdminTargetGroup = albListener.addTargets("alb-pgadmin4-tg", AddApplicationTargetsProps.builder()
                 .protocol(ApplicationProtocol.HTTP)
                 .healthCheck(HealthCheck.builder()
                         .healthyHttpCodes("302")
