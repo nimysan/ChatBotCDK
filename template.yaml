@@ -3,22 +3,26 @@ Parameters:
     Type: String
     Default: t4g.medium
     Description: EC2 instance type (Graviton will be cost effective)
-  ec2KeyPair:
+  ec2keypair:
     Type: String
     Description: EC2 Key Pair name
-  databasePassword:
+  Databasename:
     Type: String
+    Default: knowledge
+    Description: Database name
+  DatabasePassword:
+    Type: String
+    Default: tm5guJ1j
     Description: Database master password
   pgAdmin4UserName:
     Type: String
+    Default: pgadmin4
     Description: pgAdmin4 User name
   pgAdmin4Password:
     Type: String
+    Default: tX9rByOw
     Description: pgAdmin4 Password
-  pgDatabaseName:
-    Type: String
-    Description: Database name
-  openaiKeyParam:
+  openaikey:
     Type: String
     Description: OpenAI key, can be changed after initialized
   SsmParameterValueawsserviceamiamazonlinuxlatestal2023amikernel61arm64C96584B6F00A464EAD1953AFF4B05118Parameter:
@@ -44,20 +48,25 @@ Resources:
           IpProtocol: tcp
           ToPort: 22
         - CidrIp: 172.31.0.0/16
-          Description: Allow connect to database
+          Description: Connect to pg
           FromPort: 5432
           IpProtocol: tcp
           ToPort: 5432
         - CidrIp: 172.31.0.0/16
-          Description: PGAdmin4 ui
+          Description: ALB to pg admin webui
           FromPort: 62315
           IpProtocol: tcp
           ToPort: 62315
         - CidrIp: 172.31.0.0/16
-          Description: Gradio web ui
+          Description: ALB to gradio webui
           FromPort: 7860
           IpProtocol: tcp
           ToPort: 7860
+        - CidrIp: 172.31.0.0/16
+          Description: ALB to gradio manager webui
+          FromPort: 7865
+          IpProtocol: tcp
+          ToPort: 7865
       VpcId: vpc-08cd91d07ef1cfbfa
     Metadata:
       aws:cdk:path: ChatBotCdkStack/ChatBotServerSecurityGroup/Resource
@@ -84,7 +93,7 @@ Resources:
   ChatBotALBSecurityGroup952F1AD5:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Allow ChatBot ALB
+      GroupDescription: Application LoadBalancer for ChatBot Application
       GroupName: ChatBotALBSecurityGroup
       SecurityGroupEgress:
         - CidrIp: 0.0.0.0/0
@@ -126,13 +135,13 @@ Resources:
       AvailabilityZones:
         - us-east-1a
       DatabaseName:
-        Ref: pgDatabaseName
+        Ref: Databasename
       DBClusterIdentifier: chatbot-postgres-serverless-v2
       Engine: aurora-postgresql
       EngineVersion: "15.3"
       MasterUsername: postgres
       MasterUserPassword:
-        Ref: databasePassword
+        Ref: DatabasePassword
       Port: 5432
       ServerlessV2ScalingConfiguration:
         MaxCapacity: 1
@@ -210,29 +219,23 @@ Resources:
         - PolicyDocument:
             Statement:
               - Action:
-                  - cloudwatch:GetMetricData
-                  - cloudwatch:GetMetricStatistics
-                  - cloudwatch:ListMetrics
-                  - cloudwatch:PutMetricData
-                  - ecr:BatchCheckLayerAvailability
-                  - ecr:BatchGetImage
-                  - ecr:GetAuthorizationToken
-                  - ecr:GetDownloadUrlForLayer
-                  - logs:CreateLogGroup
-                  - logs:CreateLogStream
-                  - logs:DescribeLogStreams
-                  - logs:GetLogEvents
-                  - logs:PutLogEvents
-                  - s3:CreateBucket
-                  - s3:GetBucketLocation
-                  - s3:GetObject
-                  - s3:ListBucket
-                  - s3:PutObject
-                  - sagemaker:*
+                  - iam:GetRole
+                  - iam:PassRole
+                Effect: Allow
+                Resource:
+                  Fn::GetAtt:
+                    - SagemakerRole5FDB64E1
+                    - Arn
+            Version: "2012-10-17"
+          PolicyName: passrole
+        - PolicyDocument:
+            Statement:
+              - Action: bedrock:*
                 Effect: Allow
                 Resource: "*"
+                Sid: VisualEditorBedRock
             Version: "2012-10-17"
-          PolicyName: SageMakerAccessPolicy
+          PolicyName: BedrockAccessPolicy
       RoleName: ChatBotCdkStack-EC2Role
     Metadata:
       aws:cdk:path: ChatBotCdkStack/EC2Role/Resource
@@ -255,7 +258,7 @@ Resources:
         Ref: SsmParameterValueawsserviceamiamazonlinuxlatestal2023amikernel61arm64C96584B6F00A464EAD1953AFF4B05118Parameter
       InstanceType: t4g.medium
       KeyName:
-        Ref: ec2KeyPair
+        Ref: ec2keypair
       SecurityGroupIds:
         - Fn::GetAtt:
             - ChatBotServerSecurityGroup2BCBF568
@@ -305,25 +308,25 @@ Resources:
               chown ec2-user:ec2-user config.json
               su ec2-user -s deploy.sh > dlog 2>&1
               echo "########### userdata ###########"
-            - pg_port:
+            - pgAdmin4UserName:
+                Ref: pgAdmin4UserName
+              pg_database:
+                Ref: Databasename
+              pg_password:
+                Ref: DatabasePassword
+              openai_key:
+                Ref: openaikey
+              pgAdmin4Password:
+                Ref: pgAdmin4Password
+              pg_port:
                 Fn::GetAtt:
                   - DatabaseClusterForChatBot
                   - Endpoint.Port
-              pgAdmin4Password:
-                Ref: pgAdmin4Password
-              openai_key:
-                Ref: openaiKeyParam
-              pg_password:
-                Ref: databasePassword
-              pg_database:
-                Ref: pgDatabaseName
-              pgAdmin4UserName:
-                Ref: pgAdmin4UserName
+              pg_username: postgres
               pg_host:
                 Fn::GetAtt:
                   - DatabaseClusterForChatBot
                   - Endpoint.Address
-              pg_username: postgres
     DependsOn:
       - DatabaseClusterForChatBot
       - EC2RoleF978FC1C
@@ -458,12 +461,12 @@ Outputs:
         - Endpoint.Address
   database:
     Value:
-      Ref: pgDatabaseName
+      Ref: Databasename
   username:
     Value: postgres¬
   databasepassword:
     Value:
-      Ref: databasePassword
+      Ref: DatabasePassword
   pgAdmin4url:
     Value:
       Fn::Join:
@@ -474,7 +477,7 @@ Outputs:
               - PublicIp
           - :62315
   pg4Adminusernameandpassword:
-    Value: ChatBotCdkStack/pgAdmin4UserName --- ChatBotCdkStack/pgAdmin4Password
+    Value: ChatBotCdkStack/pgAdmin4 User Name --- ChatBotCdkStack/pgAdmin4 Password
   SageMakerRoleARN:
     Value:
       Fn::GetAtt:

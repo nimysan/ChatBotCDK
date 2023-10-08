@@ -1,7 +1,9 @@
 package red.plaza.cdk;
 
+import com.google.gson.Gson;
 import org.apache.commons.io.IOUtils;
 import software.amazon.awscdk.*;
+import software.amazon.awscdk.Stack;
 import software.amazon.awscdk.services.cognito.AuthFlow;
 import software.amazon.awscdk.services.cognito.CfnUserPoolUser;
 import software.amazon.awscdk.services.ec2.*;
@@ -19,9 +21,8 @@ import software.constructs.Construct;
 
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
+import java.security.SecureRandom;
+import java.util.*;
 import java.util.stream.Collectors;
 
 /**
@@ -31,6 +32,7 @@ public class ChatBotCdkStack extends Stack {
 
     private final static int DB_PORT = 5432;
     private final static int CAHT_BOT_PORT = 7860;
+    private final static int CAHT_BOT_MANAGER_PORT = 7865;
     private final static int PGADMIN_PORT = 62315;
 
     public ChatBotCdkStack(final Construct scope, final String id) {
@@ -48,17 +50,17 @@ public class ChatBotCdkStack extends Stack {
                 .defaultValue("t4g.medium").build();
         // The code that defines your stack goes here
         // Parameters
-        CfnParameter ec2KeyPairName = CfnParameter.Builder.create(this, "ec2KeyPair").type("String").description("EC2 Key Pair name").build();
+        CfnParameter ec2KeyPairName = CfnParameter.Builder.create(this, "ec2 key pair").type("String").description("EC2 Key Pair name").build();
 
-        CfnParameter databaseMasterPassword = CfnParameter.Builder.create(this, "databasePassword").type("String").description("Database master password").build();
-//
-        CfnParameter pgAdmin4UserName = CfnParameter.Builder.create(this, "pgAdmin4UserName").type("String").description("pgAdmin4 User name").build();
+        CfnParameter pgDatabaseName = CfnParameter.Builder.create(this, "Database name").type("String").defaultValue("knowledge").description("Database name").build();
+        CfnParameter databaseMasterPassword = CfnParameter.Builder.create(this, "Database Password").type("String").defaultValue(generateRandomPassword(8)).description("Database master password").build();
 
-        CfnParameter pgAdmin4Password = CfnParameter.Builder.create(this, "pgAdmin4Password").type("String").description("pgAdmin4 Password").build();
 
-        CfnParameter pgDatabaseName = CfnParameter.Builder.create(this, "pgDatabaseName").type("String").description("Database name").build();
+        CfnParameter pgAdmin4UserName = CfnParameter.Builder.create(this, "pgAdmin4 User Name").type("String").defaultValue("pgadmin4").description("pgAdmin4 User name").build();
+        CfnParameter pgAdmin4Password = CfnParameter.Builder.create(this, "pgAdmin4 Password").type("String").defaultValue(generateRandomPassword(8)).description("pgAdmin4 Password").build();
 
-        CfnParameter openaiKeyParam = CfnParameter.Builder.create(this, "openaiKeyParam").type("String").description("OpenAI key, can be changed after initialized").build();
+
+        CfnParameter openaiKeyParam = CfnParameter.Builder.create(this, "openai key").type("String").description("OpenAI key, can be changed after initialized").build();
         //Resources
         IVpc vpc = Vpc.fromLookup(this, "vpc", VpcLookupOptions.builder().isDefault(true).build());
 
@@ -66,22 +68,29 @@ public class ChatBotCdkStack extends Stack {
         //EC2的安全组
         SecurityGroup ec2sg = SecurityGroup.Builder.create(this, "ChatBotServerSecurityGroup").vpc(vpc).description("Allow ssh access to ec2 instances").allowAllOutbound(true).build();
         ec2sg.addIngressRule(Peer.anyIpv4(), Port.tcp(22), "allow ssh access from the world");
-        ec2sg.addIngressRule(Peer.ipv4(vpc.getVpcCidrBlock()), Port.tcp(DB_PORT), "Allow connect to database");
-        ec2sg.addIngressRule(Peer.ipv4(vpc.getVpcCidrBlock()), Port.tcp(PGADMIN_PORT), "PGAdmin4 ui");
-        ec2sg.addIngressRule(Peer.ipv4(vpc.getVpcCidrBlock()), Port.tcp(CAHT_BOT_PORT), "Gradio web ui");
+        ec2sg.addIngressRule(Peer.ipv4(vpc.getVpcCidrBlock()), Port.tcp(DB_PORT), "Connect to pg");
+        ec2sg.addIngressRule(Peer.ipv4(vpc.getVpcCidrBlock()), Port.tcp(PGADMIN_PORT), "ALB to pg admin webui");
+        ec2sg.addIngressRule(Peer.ipv4(vpc.getVpcCidrBlock()), Port.tcp(CAHT_BOT_PORT), "ALB to gradio webui");
+        ec2sg.addIngressRule(Peer.ipv4(vpc.getVpcCidrBlock()), Port.tcp(CAHT_BOT_MANAGER_PORT), "ALB to gradio manager webui");
 
 
         //数据库的安全组
         SecurityGroup rdsSg = SecurityGroup.Builder.create(this, "ChatBotRDSSecurityGroup").vpc(vpc).description("Allow EC2 to connect pg").allowAllOutbound(true).build();
         rdsSg.addIngressRule(Peer.securityGroupId(ec2sg.getSecurityGroupId()), Port.tcp(DB_PORT), "Allow EC2 to access database");
 
-        //数据库的安全组
+        //ALB Security Group
         SecurityGroup albSg = SecurityGroup.Builder.create(this, "ChatBotALBSecurityGroup")
                 .securityGroupName("ChatBotALBSecurityGroup")
-                .vpc(vpc).description("Allow ChatBot ALB").allowAllOutbound(true).build();
+                .vpc(vpc).description("Application LoadBalancer for ChatBot Application").allowAllOutbound(true).build();
+        //rule for target group
         albSg.addIngressRule(Peer.anyIpv4(), Port.tcp(80), "80 for webui");
         albSg.addIngressRule(Peer.anyIpv4(), Port.tcp(443), "443 for pgadmin");
 
+        /**
+         * 1. chat ui
+         * 2. chat admin ui
+         * 3. pgadmin
+         */
         albSg.addIngressRule(Peer.securityGroupId(ec2sg.getSecurityGroupId()), Port.tcp(7860), "access gradio webui");
         albSg.addIngressRule(Peer.securityGroupId(ec2sg.getSecurityGroupId()), Port.tcp(62315), "access pgadmin ui");
 
@@ -90,13 +99,37 @@ public class ChatBotCdkStack extends Stack {
 //
 
         //create sagemaker role
+        Map<String, PolicyDocument> inlinePolicies = new HashMap<>();
         final Object jsonPolicy = new ResourceAsJsonReader().readResourceAsJsonObjects("policy.json");
+        inlinePolicies.put("SageMakerAccessPolicy", PolicyDocument.fromJson(jsonPolicy));
+
         Role sagemakerRole = Role.Builder.create(this, "SagemakerRole")
                 .assumedBy(new ServicePrincipal("sagemaker.amazonaws.com"))
-//                .managedPolicies(
-//                        Arrays.asList(ManagedPolicy.fromAwsManagedPolicyName("service-role/AmazonSageMaker-ExecutionPolicy")))
-                .inlinePolicies(Map.of("SageMakerAccessPolicy", PolicyDocument.fromJson(jsonPolicy)))
+                .inlinePolicies(inlinePolicies)
                 .roleName("ChatBotCdkStack-SagemakerRole")
+                .build();
+        sagemakerRole.getRoleArn();
+
+        //创建ec2 role
+        Map<String, PolicyDocument> ec2Policies = new HashMap<>();
+
+        final Object bedrockJsonPolicy = new ResourceAsJsonReader().readResourceAsJsonObjects("bedrock-policy.json");
+        ec2Policies.put("BedrockAccessPolicy", PolicyDocument.fromJson(bedrockJsonPolicy));
+
+        PolicyStatement statement = PolicyStatement.Builder.create()
+                .actions(List.of("iam:GetRole", "iam:PassRole"))
+                .effect(Effect.ALLOW)
+                .resources(List.of(sagemakerRole.getRoleArn()))
+                .build();
+        PolicyDocument doc = PolicyDocument.Builder.create()
+                .statements(List.of(statement))
+                .build();
+
+        ec2Policies.put("passrole", doc);
+        Role ec2Role = Role.Builder.create(this, "EC2Role")
+                .assumedBy(new ServicePrincipal("ec2.amazonaws.com"))
+                .inlinePolicies(ec2Policies)
+                .roleName("ChatBotCdkStack-EC2Role")
                 .build();
 
         //创建EC2
@@ -106,28 +139,6 @@ public class ChatBotCdkStack extends Stack {
         } catch (FileNotFoundException e) {
             throw new RuntimeException(e);
         }
-
-        //创建ec2 role
-        final Object ec2RolePolicy = new ResourceAsJsonReader().readResourceAsJsonObjects("ec2-policy.json");
-
-        List x = List.of(PolicyStatement.Builder.create()
-                .actions(List.of("iam:PassRole", "iam:GetRole"))
-                .principals(List.of(new AccountRootPrincipal()))
-                .resources(List.of("*"))
-                .conditions(Map.of(
-                        "Bool", Map.of(
-                                "elasticfilesystem:AccessedViaMountTarget", "true")))
-                .build());
-
-        Role ec2Role = Role.Builder.create(this, "EC2Role")
-                .assumedBy(new ServicePrincipal("ec2.amazonaws.com"))
-                .inlinePolicies(Map.of(
-                        "SageMakerAccessPolicy", PolicyDocument.fromJson(ec2RolePolicy)
-//                        "PassRolePolicy", PolicyDocumentProps.builder().statements(x).build()
-                ))
-
-                .roleName("ChatBotCdkStack-EC2Role")
-                .build();
 
         String finalUserData = Fn.sub(userData,
                 Map.of("pgAdmin4UserName", pgAdmin4UserName.getValueAsString(),
@@ -180,6 +191,24 @@ public class ChatBotCdkStack extends Stack {
 
 
         CfnOutput.Builder.create(this, "chatbot-url").value("http://" + ec2Instance.getInstancePublicIp() + ":" + CAHT_BOT_PORT).description("ChatBot endpoint").build();
+    }
+
+    private String generateRandomPassword(int len) {
+        // ASCII range – alphanumeric (0-9, a-z, A-Z)
+        final String chars = "ABCDEFGHIJKLMNOPQRSTUVWXY*@#$%Zabcdefghijklmnopqrstuvwxyz0123456789";
+
+        SecureRandom random = new SecureRandom();
+        StringBuilder sb = new StringBuilder();
+
+        // each iteration of the loop randomly chooses a character from the given
+        // ASCII range and appends it to the `StringBuilder` instance
+
+        for (int i = 0; i < len; i++) {
+            int randomIndex = random.nextInt(chars.length());
+            sb.append(chars.charAt(randomIndex));
+        }
+
+        return sb.toString();
     }
 
     private void buildUserPool() {
