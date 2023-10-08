@@ -34,6 +34,8 @@ public class ChatBotCdkStack extends Stack {
     private final static int CHAT_BOT_MANAGER_PORT = 7865;
     private final static int PGADMIN_PORT = 62315;
 
+    private final static int NGINX_PORT = 80;
+
     public ChatBotCdkStack(final Construct scope, final String id) {
         this(scope, id, null);
     }
@@ -67,9 +69,9 @@ public class ChatBotCdkStack extends Stack {
         SecurityGroup ec2sg = SecurityGroup.Builder.create(this, "ChatBotServerSecurityGroup").vpc(vpc).description("Allow ssh access to ec2 instances").allowAllOutbound(true).build();
         ec2sg.addIngressRule(Peer.anyIpv4(), Port.tcp(22), "allow ssh access from the world");
         ec2sg.addIngressRule(Peer.ipv4(vpc.getVpcCidrBlock()), Port.tcp(DB_PORT), "Connect to pg");
-        ec2sg.addIngressRule(Peer.ipv4(vpc.getVpcCidrBlock()), Port.tcp(PGADMIN_PORT), "ALB to pg admin webui");
-        ec2sg.addIngressRule(Peer.ipv4(vpc.getVpcCidrBlock()), Port.tcp(CHAT_BOT_PORT), "ALB to gradio webui");
-        ec2sg.addIngressRule(Peer.ipv4(vpc.getVpcCidrBlock()), Port.tcp(CHAT_BOT_MANAGER_PORT), "ALB to gradio manager webui");
+        ec2sg.addIngressRule(Peer.ipv4(vpc.getVpcCidrBlock()), Port.tcp(NGINX_PORT), "ALB to Nginx port");
+//        ec2sg.addIngressRule(Peer.ipv4(vpc.getVpcCidrBlock()), Port.tcp(CHAT_BOT_PORT), "ALB to gradio webui");
+//        ec2sg.addIngressRule(Peer.ipv4(vpc.getVpcCidrBlock()), Port.tcp(CHAT_BOT_MANAGER_PORT), "ALB to gradio manager webui");
 
 
         //数据库的安全组
@@ -84,13 +86,13 @@ public class ChatBotCdkStack extends Stack {
         albSg.addIngressRule(Peer.anyIpv4(), Port.tcp(80), "80 for webui");
         albSg.addIngressRule(Peer.anyIpv4(), Port.tcp(443), "443 for pgadmin");
 
-        /**
-         * 1. chat ui
-         * 2. chat admin ui
-         * 3. pgadmin
-         */
-        albSg.addIngressRule(Peer.securityGroupId(ec2sg.getSecurityGroupId()), Port.tcp(7860), "access gradio webui");
-        albSg.addIngressRule(Peer.securityGroupId(ec2sg.getSecurityGroupId()), Port.tcp(62315), "access pgadmin ui");
+//        /**
+//         * 1. chat ui
+//         * 2. chat admin ui
+//         * 3. pgadmin
+//         */
+        albSg.addIngressRule(Peer.securityGroupId(ec2sg.getSecurityGroupId()), Port.tcp(NGINX_PORT), "access gradio webui");
+//        albSg.addIngressRule(Peer.securityGroupId(ec2sg.getSecurityGroupId()), Port.tcp(62315), "access pgadmin ui");
 
         CfnDBCluster dbCluster = serverlessV2Cluster(vpc, rdsSg, databaseMasterPassword.getValueAsString(), pgDatabaseName.getValueAsString());
         dbCluster.applyRemovalPolicy(RemovalPolicy.RETAIN);
