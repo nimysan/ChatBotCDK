@@ -1,6 +1,6 @@
 #!/bin/bash
 dnf update -y
-dnf install git postgresql15 pip docker -y
+dnf install git postgresql15 pip docker nginx -y
 
 #enable pgadmin4
 usermod -a -G docker ec2-user
@@ -10,8 +10,11 @@ systemctl enable docker
 docker run -d -p 62315:80 \
     -e "PGADMIN_DEFAULT_EMAIL=${pgAdmin4UserName}" \
     -e "PGADMIN_DEFAULT_PASSWORD=${pgAdmin4Password}" \
-    -d dpage/pgadmin4
+    dpage/pgadmin4
 
+curl https://raw.githubusercontent.com/nimysan/ChatBotWebUI/main/nginx.conf -o /etc/nginx/nginx.conf
+systemctl enable nginx
+systemctl start nginx
 #start gradio app
 cd /home/ec2-user
 #deploy ChatBotWebUI
