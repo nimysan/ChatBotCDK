@@ -33,6 +33,10 @@ cat << EOF > config.json
     "${pg_password}"
   ],
   "openai_key": "${openai_key}",
+  "cognito": {
+      "poolId": "${cognito_pool_id}",
+      "clientId": "${cognito_client_id}"
+  },
   "bedrock_llm": {
     "region": "us-west-2",
     "model_id": "anthropic.claude-v2"

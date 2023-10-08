@@ -131,6 +131,26 @@ public class ChatBotCdkStack extends Stack {
                 .inlinePolicies(ec2Policies)
                 .roleName("ChatBotCdkStack-EC2Role")
                 .build();
+        //create cognito
+        UserPool userPool = UserPool.Builder.create(this, "UserPool")
+                .userPoolName("chat-bot-user-pool")
+
+                .build();
+
+        UserPoolClient userPoolClient = UserPoolClient.Builder
+                .create(this, "UserPoolClient")
+                .userPoolClientName("chatbot-userpool-client")
+                .authFlows(AuthFlow.builder().userPassword(true).userSrp(true).adminUserPassword(true).build())
+                .userPool(userPool)
+                .generateSecret(false)
+                .build();
+
+
+        CfnUserPoolUser user = CfnUserPoolUser.Builder.create(this, "defaultUser")
+                .userPoolId(userPool.getUserPoolId())
+                .username("chatbotAdmin")
+//                .te
+                .build();
 
         //创建EC2
         String userData = null;
@@ -150,11 +170,13 @@ public class ChatBotCdkStack extends Stack {
                         "pg_username", "postgres",
                         "pg_password", databaseMasterPassword.getValueAsString(),
                         //openai_key
-                        "openai_key", openaiKeyParam.getValueAsString()
+                        "openai_key", openaiKeyParam.getValueAsString(),
+                        "cognito_pool_id", userPool.getUserPoolId(),
+                        "cognito_client_id", userPoolClient.getUserPoolClientId()
                 ));
 
 
-        Instance ec2Instance = Instance.Builder.create(this, "ChatBotWebServerV2-t4g-medium-v1")
+        Instance ec2Instance = Instance.Builder.create(this, "ChatBotWebServerV2-t4g-medium-v2")
                 .vpc(vpc)
                 .vpcSubnets(SubnetSelection.builder().subnetType(SubnetType.PUBLIC).build()) //放在公有子网 需要访问openapi或者其他外部网页数据
                 .machineImage(MachineImage.latestAmazonLinux2023(AmazonLinux2023ImageSsmParameterProps.builder()
@@ -171,7 +193,6 @@ public class ChatBotCdkStack extends Stack {
 
         ApplicationLoadBalancer applicationLoadBalancer = buildALB(vpc, albSg, ec2Instance);
 
-        buildUserPool();
 
 //        @NotNull LoadBalancer lb = LoadBalancer.application(albTg);
 //        LoadBalancer.application(pgAlbTg);
@@ -185,7 +206,7 @@ public class ChatBotCdkStack extends Stack {
 
 //        CfnOutput.Builder.create(this, "pgAdmin4-url").value("http://" + ec2Instance.getInstancePublicIp() + ":" + PGADMIN_PORT).build();
 
-        CfnOutput.Builder.create(this, "pg4Admin username and password").value(pgAdmin4UserName + " --- " + pgAdmin4Password).build();
+        CfnOutput.Builder.create(this, "pg4Admin login").value(pgAdmin4UserName.getValueAsString() + " --- " + pgAdmin4Password.getValueAsString()).build();
 
         CfnOutput.Builder.create(this, "SageMaker Role ARN").value(sagemakerRole.getRoleArn()).build();
         CfnOutput.Builder.create(this, "ALB endpoint").value(applicationLoadBalancer.getLoadBalancerDnsName()).build();
