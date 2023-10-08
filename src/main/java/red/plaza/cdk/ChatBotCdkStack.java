@@ -251,37 +251,16 @@ public class ChatBotCdkStack extends Stack {
                 .healthCheck(HealthCheck.builder()
                         .healthyHttpCodes("200")
                         .build())
-                .targetGroupName("WebUITargetGroup")
+                .targetGroupName("ChatBoTServiceTargetGroup")
                 .port(80)
                 .targets(Collections.singletonList(new InstanceTarget(chatBotWebServer)))
                 .deregistrationDelay(Duration.seconds(10))
                 .build());
-        ApplicationTargetGroup managerTargetGroup = albListener.addTargets("alb-manager-tg", AddApplicationTargetsProps.builder()
-                .protocol(ApplicationProtocol.HTTP)
-                .healthCheck(HealthCheck.builder()
-                        .healthyHttpCodes("200")
-                        .build())
-                .targetGroupName("ManagerUITargetGroup")
-                .port(80)
-                .targets(Collections.singletonList(new InstanceTarget(chatBotWebServer)))
-                .deregistrationDelay(Duration.seconds(10))
-                .build());
-        ApplicationTargetGroup pgAdminTargetGroup = albListener.addTargets("alb-pgadmin4-tg", AddApplicationTargetsProps.builder()
-                .protocol(ApplicationProtocol.HTTP)
-                .healthCheck(HealthCheck.builder()
-                        .healthyHttpCodes("200")
-                        .build())
-                .targetGroupName("PgAdmin4TargetGroup")
-                .port(80)
-                .targets(Collections.singletonList(new InstanceTarget(chatBotWebServer)))
-                .deregistrationDelay(Duration.seconds(10))
-                .build());
-        albListener.addAction("webui-action", AddApplicationActionProps.builder().action(ListenerAction.forward(List.of(webuiTargetGroup)))
-                .conditions(List.of(ListenerCondition.pathPatterns(List.of("/chat/*")))).priority(100).build());
-        albListener.addAction("manager-ui-action", AddApplicationActionProps.builder().action(ListenerAction.forward(List.of(managerTargetGroup)))
-                .conditions(List.of(ListenerCondition.pathPatterns(List.of("/manage/*")))).priority(110).build());
-        albListener.addAction("pgadmin4-action", AddApplicationActionProps.builder().action(ListenerAction.forward(List.of(pgAdminTargetGroup)))
-                .conditions(List.of(ListenerCondition.pathPatterns(List.of("/pgAdmin4/*")))).priority(120).build());
+//
+//        albListener.addAction("pgadmin4-action", AddApplicationActionProps.builder().action(ListenerAction.forward(List.of(pgAdminTargetGroup)))
+//                .conditions(List.of(ListenerCondition.pathPatterns(List.of("/*")))).priority(120).build());
+        albListener.addTargetGroups("listener", AddApplicationTargetGroupsProps.builder()
+                .targetGroups(List.of(webuiTargetGroup)).build());
         return alb;
     }
 
