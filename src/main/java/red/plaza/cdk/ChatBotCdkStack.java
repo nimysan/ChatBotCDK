@@ -144,7 +144,7 @@ public class ChatBotCdkStack extends Stack {
         PolicyStatement statement = PolicyStatement.Builder.create()
                 .actions(List.of("iam:GetRole", "iam:PassRole"))
                 .effect(Effect.ALLOW)
-                .resources(List.of(sagemakerRole.getRoleArn()))
+                .resources(List.of(sagemakerRole.getRoleArn(), "arn:aws:iam::" + getAccount() + ":role/accelerate_sagemaker_execution_role"))
                 .build();
         PolicyDocument doc = PolicyDocument.Builder.create()
                 .statements(List.of(statement))
