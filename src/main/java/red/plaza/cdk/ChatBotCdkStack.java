@@ -134,8 +134,11 @@ public class ChatBotCdkStack extends Stack {
         //创建ec2 role
         Map<String, PolicyDocument> ec2Policies = new HashMap<>();
 
-        final Object bedrockJsonPolicy = new ResourceAsJsonReader().readResourceAsJsonObjects("bedrock-policy.json");
+        final Object bedrockJsonPolicy = new ResourceAsJsonReader().readResourceAsJsonObjects("policy.json");
         ec2Policies.put("BedrockAccessPolicy", PolicyDocument.fromJson(bedrockJsonPolicy));
+
+        final Object sagemakerJsonPolicy = new ResourceAsJsonReader().readResourceAsJsonObjects("bedrock-policy.json");
+        ec2Policies.put("SageMakerPolicy", PolicyDocument.fromJson(sagemakerJsonPolicy));
 
         //pass role policy
         PolicyStatement statement = PolicyStatement.Builder.create()
@@ -194,7 +197,7 @@ public class ChatBotCdkStack extends Stack {
                 ));
 
 
-        Instance ec2Instance = Instance.Builder.create(this, "ChatBotWebServerV2-t4g-medium-v3")
+        Instance ec2Instance = Instance.Builder.create(this, "ChatBotWebServerV2-t4g-medium-v4")
                 .vpc(vpc)
                 .vpcSubnets(SubnetSelection.builder().subnetType(SubnetType.PUBLIC).build()) //放在公有子网 需要访问openapi或者其他外部网页数据
                 .machineImage(MachineImage.latestAmazonLinux2023(AmazonLinux2023ImageSsmParameterProps.builder()
@@ -298,10 +301,10 @@ public class ChatBotCdkStack extends Stack {
 
 //        final Credentials credentials = Credentials.fromSecret(databaseSecret);
 
-        CfnDBCluster cfnDBCluster = new CfnDBCluster(this, "DatabaseClusterForChatBot", CfnDBClusterProps.builder()
+        CfnDBCluster cfnDBCluster = new CfnDBCluster(this, "DatabaseClusterForChatBot-v3", CfnDBClusterProps.builder()
                 .engine("aurora-postgresql")
                 .engineVersion("15.3")
-                .dbClusterIdentifier("chatbot-postgres-serverless-v2")
+                .dbClusterIdentifier("chatbot-postgres-serverless-v3")
                 .serverlessV2ScalingConfiguration(serverlessV2ScalingConfigurationProperty)
                 .masterUsername("postgres")
                 .port(DB_PORT)
@@ -313,9 +316,9 @@ public class ChatBotCdkStack extends Stack {
                 .build());
 
         //
-        CfnDBInstance dbInstance = new CfnDBInstance(this, "DatabaseInstanceWriter", CfnDBInstanceProps.builder()
+        CfnDBInstance dbInstance = new CfnDBInstance(this, "DatabaseInstanceWriter-v3", CfnDBInstanceProps.builder()
 //                .port("5432")
-                .dbClusterIdentifier(cfnDBCluster.getDbClusterIdentifier()).dbInstanceClass("db.serverless").dbInstanceIdentifier("writer-instance").engine("aurora-postgresql").build());
+                .dbClusterIdentifier(cfnDBCluster.getDbClusterIdentifier()).dbInstanceClass("db.serverless").dbInstanceIdentifier("writer-instance-v3").engine("aurora-postgresql").build());
 
         dbInstance.addDependency(cfnDBCluster);
 
