@@ -3,8 +3,7 @@ package red.plaza.cdk;
 import org.apache.commons.io.IOUtils;
 import software.amazon.awscdk.*;
 import software.amazon.awscdk.Stack;
-import software.amazon.awscdk.services.cognito.AuthFlow;
-import software.amazon.awscdk.services.cognito.CfnUserPoolUser;
+import software.amazon.awscdk.services.cognito.*;
 import software.amazon.awscdk.services.ec2.*;
 import software.amazon.awscdk.services.elasticloadbalancingv2.*;
 import software.amazon.awscdk.services.elasticloadbalancingv2.targets.InstanceTarget;
@@ -13,8 +12,6 @@ import software.amazon.awscdk.services.rds.CfnDBCluster;
 import software.amazon.awscdk.services.rds.CfnDBClusterProps;
 import software.amazon.awscdk.services.rds.CfnDBInstance;
 import software.amazon.awscdk.services.rds.CfnDBInstanceProps;
-import software.amazon.awscdk.services.cognito.UserPool;
-import software.amazon.awscdk.services.cognito.UserPoolClient;
 
 import software.constructs.Construct;
 
@@ -112,13 +109,8 @@ public class ChatBotCdkStack extends Stack {
                 .build();
 
 
-        CfnUserPoolUser user = CfnUserPoolUser.Builder.create(this, "defaultUser")
-                .userPoolId(userPool.getUserPoolId())
-                .username("chatbotAdmin")
-//                .te
-                .build();
-//
-
+        // 添加默认用户
+//        userPool.
         //create sagemaker role
         Map<String, PolicyDocument> inlinePolicies = new HashMap<>();
         final Object jsonPolicy = new ResourceAsJsonReader().readResourceAsJsonObjects("policy.json");
